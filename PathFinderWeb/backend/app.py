@@ -19,13 +19,13 @@ app = Flask(__name__)
 CORS(app)  # Permettre les requêtes cross-origin
 
 # Configuration
-app.config['SECRET_KEY'] = 'pathfinder-secret-key-change-in-production'
-app.config['MYSQL_HOST'] = 'localhost'
-app.config['MYSQL_PORT'] = 8889  # Port MAMP par défaut
-app.config['MYSQL_USER'] = 'root'
-app.config['MYSQL_PASSWORD'] = 'root'  # Mot de passe MAMP par défaut
-app.config['MYSQL_DATABASE'] = 'pathfinder'
-app.config['MYSQL_UNIX_SOCKET'] = '/Applications/MAMP/tmp/mysql/mysql.sock'
+app.config['SECRET_KEY'] = os.getenv('PATHFINDER_SECRET_KEY', 'pathfinder-secret-key-change-in-production')
+app.config['MYSQL_HOST'] = os.getenv('PATHFINDER_MYSQL_HOST', 'localhost')
+app.config['MYSQL_PORT'] = int(os.getenv('PATHFINDER_MYSQL_PORT', '8889'))  # Port MAMP par défaut
+app.config['MYSQL_USER'] = os.getenv('PATHFINDER_MYSQL_USER', 'root')
+app.config['MYSQL_PASSWORD'] = os.getenv('PATHFINDER_MYSQL_PASSWORD', 'root')  # Mot de passe MAMP par défaut
+app.config['MYSQL_DATABASE'] = os.getenv('PATHFINDER_MYSQL_DATABASE', 'pathfinder')
+app.config['MYSQL_UNIX_SOCKET'] = os.getenv('PATHFINDER_MYSQL_SOCKET', '/Applications/MAMP/tmp/mysql/mysql.sock')
 
 # Connexion MySQL
 def get_db_connection():
