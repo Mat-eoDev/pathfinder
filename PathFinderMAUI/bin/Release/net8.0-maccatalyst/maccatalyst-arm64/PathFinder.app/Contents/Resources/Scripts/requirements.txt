@@ -1,6 +1,0 @@
-# Aucune dépendance externe requise !
-# Le scanner utilise uniquement les bibliothèques standard Python :
-# - socket, ssl, urllib.request, subprocess, ipaddress, concurrent.futures
-# 
-# Cela garantit que le scanner fonctionne sur n'importe quel système avec Python 3.7+
-# sans avoir besoin d'installer des packages supplémentaires.

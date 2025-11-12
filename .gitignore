@@ -2,7 +2,9 @@
 
 # Builds et binaires
 PathFinderMAUI/bin/
+PathFinderMAUI/bin/**
 PathFinderMAUI/obj/
+PathFinderMAUI/obj/**
 *.app
 *.dmg
 *.apk
@@ -66,10 +68,7 @@ temp/
 PathFinder-*.ips
 
 # Downloads (fichiers volumineux)
-PathFinderWeb/downloads/*.dmg
-PathFinderWeb/downloads/*.apk
-PathFinderWeb/downloads/*.exe
-PathFinderWeb/downloads/*.msix
+PathFinderWeb/downloads/
 
 # Garder seulement le README dans downloads
 !PathFinderWeb/downloads/README.md

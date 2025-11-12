@@ -1,1 +1,0 @@
--v --force --timestamp=none --sign - --entitlements /Users/mateoh/Desktop/merde/PathFinderMAUI/obj/Debug/net8.0-maccatalyst/maccatalyst-arm64/Entitlements.xcent /Users/mateoh/Desktop/merde/PathFinderMAUI/bin/Debug/net8.0-maccatalyst/maccatalyst-arm64/PathFinder.app
