@@ -162,7 +162,7 @@ def login():
             'user_id': user['id'],
             'email': user['email'],
             'role': user['role'],
-            'exp': datetime.datetime.utcnow() + datetime.timedelta(hours=24)
+            'exp': datetime.datetime.utcnow() + datetime.timedelta(days=7)  # 7 jours au lieu de 24h
         }, app.config['SECRET_KEY'], algorithm="HS256")
         
         # Mettre à jour last_login
@@ -1035,6 +1035,45 @@ def health():
         'status': 'online',
         'timestamp': datetime.datetime.now().isoformat()
     }), 200
+
+@app.route('/api/refresh-token', methods=['POST'])
+@token_required
+def refresh_token(current_user_id):
+    """Rafraîchir le token JWT."""
+    conn = get_db_connection()
+    if not conn:
+        return jsonify({'message': 'Erreur de connexion'}), 500
+    
+    cursor = conn.cursor(dictionary=True)
+    
+    try:
+        cursor.execute(
+            "SELECT id, email, username, role FROM users WHERE id = %s",
+            (current_user_id,)
+        )
+        user = cursor.fetchone()
+        
+        if not user:
+            return jsonify({'message': 'Utilisateur non trouvé'}), 404
+        
+        # Générer un nouveau token
+        new_token = jwt.encode({
+            'user_id': user['id'],
+            'email': user['email'],
+            'role': user['role'],
+            'exp': datetime.datetime.utcnow() + datetime.timedelta(days=7)
+        }, app.config['SECRET_KEY'], algorithm="HS256")
+        
+        return jsonify({
+            'message': 'Token rafraîchi',
+            'token': new_token
+        }), 200
+        
+    except Error as e:
+        return jsonify({'message': f'Erreur: {str(e)}'}), 500
+    finally:
+        cursor.close()
+        conn.close()
 
 # ========== ROUTES DE TÉLÉCHARGEMENT ==========
 

@@ -6,6 +6,112 @@ let authToken = null;
 let isAdmin = false;
 let selectedUserId = null;
 
+// ========== GESTION AUTOMATIQUE DES TOKENS ==========
+
+async function apiCallWithRetry(url, options = {}) {
+    /**
+     * Effectue un appel API avec gestion automatique de l'expiration du token.
+     * En cas de token expiré, tente de rafraîchir le token et refait l'appel.
+     */
+    try {
+        const response = await fetch(url, options);
+        
+        // Si le token est expiré
+        if (response.status === 401) {
+            const data = await response.json();
+            if (data.message && (data.message.includes('expiré') || data.message.includes('expired'))) {
+                // Tenter de rafraîchir le token
+                const refreshed = await refreshAuthToken();
+                
+                if (refreshed) {
+                    // Refaire l'appel avec le nouveau token
+                    if (options.headers) {
+                        options.headers['Authorization'] = `Bearer ${authToken}`;
+                    }
+                    return await fetch(url, options);
+                } else {
+                    // Impossible de rafraîchir, déconnecter
+                    showNotification('Session expirée. Reconnexion requise.', 'error');
+                    setTimeout(() => logout(), 2000);
+                    throw new Error('Token expired and refresh failed');
+                }
+            }
+        }
+        
+        return response;
+    } catch (error) {
+        console.error('API call error:', error);
+        throw error;
+    }
+}
+
+async function refreshAuthToken() {
+    /**
+     * Rafraîchit le token JWT auprès du serveur.
+     * Retourne true si succès, false sinon.
+     */
+    try {
+        const response = await fetch(`${API_URL}/refresh-token`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${authToken}`,
+                'Content-Type': 'application/json'
+            }
+        });
+        
+        if (response.ok) {
+            const data = await response.json();
+            authToken = data.token;
+            localStorage.setItem('authToken', authToken);
+            console.log('✅ Token rafraîchi avec succès');
+            return true;
+        }
+        
+        return false;
+    } catch (error) {
+        console.error('Erreur refresh token:', error);
+        return false;
+    }
+}
+
+let tokenRefreshInterval = null;
+
+function startTokenAutoRefresh() {
+    /**
+     * Démarre le rafraîchissement automatique du token.
+     * Rafraîchit tous les 6 jours (avant expiration à 7 jours).
+     */
+    // Arrêter l'ancien interval s'il existe
+    if (tokenRefreshInterval) {
+        clearInterval(tokenRefreshInterval);
+    }
+    
+    // Rafraîchir tous les 6 jours (6 * 24 * 60 * 60 * 1000 ms)
+    const sixDaysInMs = 6 * 24 * 60 * 60 * 1000;
+    
+    tokenRefreshInterval = setInterval(async () => {
+        console.log('🔄 Auto-refresh du token...');
+        const success = await refreshAuthToken();
+        if (!success) {
+            console.error('❌ Échec du auto-refresh, déconnexion...');
+            logout();
+        }
+    }, sixDaysInMs);
+    
+    console.log('⏰ Auto-refresh du token activé (tous les 6 jours)');
+}
+
+function stopTokenAutoRefresh() {
+    /**
+     * Arrête le rafraîchissement automatique du token.
+     */
+    if (tokenRefreshInterval) {
+        clearInterval(tokenRefreshInterval);
+        tokenRefreshInterval = null;
+        console.log('⏹️ Auto-refresh du token désactivé');
+    }
+}
+
 // Charts
 let scansChart = null;
 let osChart = null;
@@ -19,6 +125,8 @@ document.addEventListener('DOMContentLoaded', () => {
     
     if (authToken && userData) {
         currentUser = JSON.parse(userData);
+        // Démarrer l'auto-refresh du token
+        startTokenAutoRefresh();
         showDashboard();
     } else {
         showLandingPage();
@@ -260,6 +368,9 @@ async function handleLogin(e) {
             localStorage.setItem('authToken', authToken);
             localStorage.setItem('userData', JSON.stringify(currentUser));
             
+            // Démarrer l'auto-refresh du token
+            startTokenAutoRefresh();
+            
             notify.success(`Bienvenue ${currentUser.username} ! 🎉`);
             showDashboard();
         } else {
@@ -301,6 +412,9 @@ async function handleRegister(e) {
 }
 
 function handleLogout() {
+    // Arrêter l'auto-refresh du token
+    stopTokenAutoRefresh();
+    
     localStorage.removeItem('authToken');
     localStorage.removeItem('userData');
     authToken = null;
