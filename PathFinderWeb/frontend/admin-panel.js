@@ -347,15 +347,28 @@ function renderToolsTab() {
             
             <div class="tools-grid">
                 <div class="tool-card">
-                    <h4>🔓 Hash Cracker</h4>
-                    <p>Cracker hashes MD5, SHA1, SHA256</p>
+                    <h4>🔓 Hash Cracker Pro</h4>
+                    <p>Cracker hashes avec rockyou.txt (14M passwords)</p>
                     <textarea id="hash-input" placeholder="Entrer hash..." class="admin-textarea"></textarea>
-                    <select id="hash-type" class="admin-input">
-                        <option value="md5">MD5</option>
-                        <option value="sha1">SHA1</option>
-                        <option value="sha256">SHA256</option>
-                    </select>
-                    <button onclick="crackHash()" class="attack-btn warning">Cracker</button>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                        <select id="hash-type" class="admin-input">
+                            <option value="md5">MD5</option>
+                            <option value="sha1">SHA1</option>
+                            <option value="sha256" selected>SHA256</option>
+                        </select>
+                        <select id="hash-wordlist" class="admin-input">
+                            <option value="common">Common (500)</option>
+                            <option value="top10k">Top 10k</option>
+                            <option value="rockyou" selected>RockYou (14M)</option>
+                        </select>
+                    </div>
+                    <div style="margin-top: 10px;">
+                        <label style="font-size: 13px; color: var(--text-muted); display: flex; align-items: center; gap: 8px;">
+                            <span>Max tentatives:</span>
+                            <input type="number" id="hash-max-attempts" value="100000" min="1000" max="14000000" step="10000" class="admin-input" style="width: 120px;" />
+                        </label>
+                    </div>
+                    <button onclick="crackHash()" class="attack-btn warning" style="margin-top: 10px;">🔨 Cracker</button>
                     <div id="hash-result" class="tool-result"></div>
                 </div>
                 
@@ -1058,6 +1071,8 @@ function showExploitInfo(type) {
 async function crackHash() {
     const hashInput = document.getElementById('hash-input').value.trim();
     const hashType = document.getElementById('hash-type').value;
+    const wordlistType = document.getElementById('hash-wordlist').value;
+    const maxAttempts = parseInt(document.getElementById('hash-max-attempts').value) || 100000;
     const resultDiv = document.getElementById('hash-result');
     
     if (!hashInput) {
@@ -1065,8 +1080,14 @@ async function crackHash() {
         return;
     }
     
-    resultDiv.innerHTML = '<div class="loading">⏳ Cracking en cours...</div>';
-    addPentestLog(`Hash crack: ${hashType} - ${hashInput.substring(0, 20)}...`, 'attack');
+    const wordlistSizes = {
+        'common': '500',
+        'top10k': '10,000',
+        'rockyou': '14,000,000'
+    };
+    
+    resultDiv.innerHTML = `<div class="loading">⏳ Cracking en cours avec ${wordlistSizes[wordlistType]} passwords...<br><span style="font-size: 12px; color: var(--text-muted);">Peut prendre 10s à 5min selon la position du mot de passe</span></div>`;
+    addPentestLog(`Hash crack: ${hashType} - ${wordlistType} (max ${maxAttempts})`, 'attack');
     
     try {
         const response = await fetch(`${API_URL}/pentest/tools/hash-crack`, {
@@ -1078,39 +1099,74 @@ async function crackHash() {
             },
             body: JSON.stringify({
                 hash: hashInput,
-                hash_type: hashType
+                hash_type: hashType,
+                wordlist_type: wordlistType,
+                max_attempts: maxAttempts
             })
         });
         
         const data = await response.json();
         
         if (response.ok) {
-            if (data.success) {
+            if (data.error) {
                 resultDiv.innerHTML = `
                     <div class="error" style="padding: 15px;">
-                        <div style="font-size: 18px; margin-bottom: 10px;">🚨 HASH CRACKÉ !</div>
-                        <div style="background: rgba(0,0,0,0.3); padding: 12px; border-radius: 6px; font-family: monospace; font-size: 16px; color: #10B981;">
-                            Hash: <strong>${hashInput}</strong><br>
-                            Type: <strong>${hashType.toUpperCase()}</strong><br>
-                            Password: <strong style="color: var(--danger);">${data.password}</strong><br>
-                            Tentatives: ${data.attempts}
-                        </div>
+                        ❌ ${data.error}
+                        ${data.info ? `<div style="margin-top: 10px; font-size: 12px; color: var(--text-muted);">${data.info}</div>` : ''}
                     </div>
                 `;
-                notify.error(`🚨 Password trouvé: ${data.password}`);
-                addPentestLog(`⚠️ Hash cracké: ${data.password}`, 'error');
-            } else {
+                notify.error(data.error);
+            } else if (data.success) {
+                const position = data.attempts || 0;
                 resultDiv.innerHTML = `
-                    <div class="info" style="padding: 15px;">
-                        ❌ Hash non cracké avec wordlist commune
-                        <div style="margin-top: 10px; font-size: 13px; color: var(--text-muted);">
-                            Tentatives: ${data.attempts}<br>
-                            ${data.info || 'Essayer une wordlist plus complète'}
+                    <div class="error" style="padding: 20px;">
+                        <div style="font-size: 22px; margin-bottom: 15px; font-weight: 700;">🚨 HASH CRACKÉ !</div>
+                        <div style="background: rgba(0,0,0,0.4); padding: 18px; border-radius: 8px; margin: 15px 0;">
+                            <div style="font-family: monospace; font-size: 15px; color: #10B981; line-height: 1.8;">
+                                Hash Type: <strong style="color: var(--text);">${data.hash_type?.toUpperCase() || hashType.toUpperCase()}</strong><br>
+                                Password: <strong style="color: var(--danger); font-size: 20px; background: rgba(239, 68, 68, 0.2); padding: 4px 8px; border-radius: 4px;">${data.password}</strong><br>
+                                Wordlist: <strong style="color: var(--text);">${data.wordlist || 'N/A'}</strong><br>
+                                Position: <strong style="color: var(--warning);">#${position.toLocaleString()}</strong><br>
+                                Tentatives: <strong style="color: var(--text);">${position.toLocaleString()}</strong><br>
+                                Durée: <strong style="color: var(--text);">${data.duration || 'N/A'}</strong><br>
+                                Vitesse: <strong style="color: var(--primary);">${data.hash_rate || 'N/A'}</strong>
+                            </div>
+                        </div>
+                        <div style="margin-top: 15px; padding: 15px; background: rgba(239, 68, 68, 0.15); border-radius: 8px; border-left: 4px solid var(--danger); font-size: 13px;">
+                            <strong style="color: var(--danger);">⚠️ VULNÉRABILITÉ CRITIQUE:</strong><br>
+                            <div style="margin-top: 8px; color: var(--text-muted); line-height: 1.6;">
+                                • Ce mot de passe est à la position <strong>${position.toLocaleString()}</strong> dans rockyou.txt<br>
+                                • Extrêmement vulnérable au bruteforce (cracké en ${data.duration || 'quelques secondes'})<br>
+                                • Un attaquant avec hashcat peut le trouver instantanément<br>
+                                • <strong style="color: var(--danger);">ACTION:</strong> Changer pour un mot de passe fort (16+ caractères aléatoires)
+                            </div>
                         </div>
                     </div>
                 `;
-                notify.info('Hash non trouvé dans wordlist');
-                addPentestLog(`Hash crack: Non trouvé (${data.attempts} tentatives)`, 'info');
+                notify.error(`🚨 Password: ${data.password} (position #${position.toLocaleString()})`);
+                addPentestLog(`⚠️ Hash cracké: ${data.password} (position ${position})`, 'error');
+            } else {
+                const attempts = data.attempts || 0;
+                resultDiv.innerHTML = `
+                    <div class="success" style="padding: 15px;">
+                        ✅ Hash résiste au cracking (excellent !)
+                        <div style="margin-top: 15px; background: rgba(16, 185, 129, 0.1); padding: 15px; border-radius: 8px; border-left: 4px solid var(--success);">
+                            <div style="font-size: 13px; color: var(--text-muted); line-height: 1.6;">
+                                Tentatives: <strong style="color: var(--text);">${attempts.toLocaleString()}</strong><br>
+                                Durée: <strong style="color: var(--text);">${data.duration || 'N/A'}</strong><br>
+                                Wordlist: <strong style="color: var(--text);">${data.wordlist || 'N/A'}</strong>
+                            </div>
+                            ${data.info ? `<div style="margin-top: 10px; padding: 10px; background: rgba(6, 182, 212, 0.1); border-radius: 6px; font-size: 12px;">${data.info}</div>` : ''}
+                            <div style="margin-top: 12px; padding: 12px; background: rgba(16, 185, 129, 0.15); border-radius: 6px; font-size: 13px;">
+                                <strong style="color: var(--success);">✅ BON MOT DE PASSE:</strong><br>
+                                Le hash n'est pas dans les ${attempts.toLocaleString()} premiers mots de passe courants.<br>
+                                Probablement un mot de passe fort ou unique.
+                            </div>
+                        </div>
+                    </div>
+                `;
+                notify.success(`✅ Hash résiste (${attempts.toLocaleString()} tentatives)`);
+                addPentestLog(`Hash crack: Résiste après ${attempts.toLocaleString()} tentatives`, 'success');
             }
         } else {
             resultDiv.innerHTML = `<div class="error">❌ ${data.message || 'Erreur'}</div>`;

@@ -1460,20 +1460,22 @@ def pentest_advanced_scan(current_user_id):
 @app.route('/api/pentest/tools/hash-crack', methods=['POST'])
 @token_required
 def pentest_hash_crack(current_user_id):
-    """Cracker un hash."""
+    """Cracker un hash avec wordlist massive."""
     if not verify_pentest_access():
         return jsonify({'message': 'Code pentest invalide'}), 403
     
     data = request.get_json()
     hash_value = data.get('hash')
     hash_type = data.get('hash_type', 'md5')
+    wordlist_type = data.get('wordlist_type', 'rockyou')
+    max_attempts = data.get('max_attempts', 100000)
     
     if not hash_value:
         return jsonify({'message': 'Hash requis'}), 400
     
     try:
-        results = crack_hash(hash_value, hash_type)
-        log_activity(current_user_id, 'pentest_hash_crack', f'Hash crack {hash_type}', json.dumps(results))
+        results = crack_hash(hash_value, hash_type, wordlist_type, max_attempts)
+        log_activity(current_user_id, 'pentest_hash_crack', f'Hash crack {hash_type} ({wordlist_type})', json.dumps(results))
         return jsonify(results), 200
     except Exception as e:
         return jsonify({'message': f'Erreur: {str(e)}'}), 500
