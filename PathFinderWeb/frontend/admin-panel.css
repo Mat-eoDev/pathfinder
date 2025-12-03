@@ -1,0 +1,560 @@
+/* PathFinder - Admin Pentest Panel Styles */
+
+#admin-panel-container {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 10000;
+    display: none;
+    align-items: center;
+    justify-content: center;
+}
+
+.admin-panel-backdrop {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.8);
+    backdrop-filter: blur(5px);
+}
+
+.admin-panel-content {
+    position: relative;
+    width: 95%;
+    max-width: 1400px;
+    height: 90vh;
+    background: var(--surface);
+    border-radius: 20px;
+    box-shadow: 0 25px 50px rgba(0, 0, 0, 0.5);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    border: 2px solid var(--danger);
+}
+
+.admin-panel-header {
+    background: linear-gradient(135deg, #EF4444 0%, #DC2626 100%);
+    padding: 20px 30px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 2px solid rgba(255, 255, 255, 0.1);
+}
+
+.admin-panel-header h2 {
+    color: white;
+    margin: 0;
+    font-size: 24px;
+    font-weight: 700;
+}
+
+.admin-panel-header .close-btn {
+    background: rgba(255, 255, 255, 0.2);
+    border: none;
+    color: white;
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    cursor: pointer;
+    font-size: 20px;
+    transition: all 0.2s ease;
+}
+
+.admin-panel-header .close-btn:hover {
+    background: rgba(255, 255, 255, 0.3);
+    transform: rotate(90deg);
+}
+
+.admin-panel-tabs {
+    display: flex;
+    gap: 5px;
+    padding: 15px 30px;
+    background: var(--dark);
+    border-bottom: 1px solid var(--border);
+    overflow-x: auto;
+}
+
+.admin-tab {
+    padding: 10px 20px;
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text-muted);
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 500;
+    transition: all 0.2s ease;
+    white-space: nowrap;
+}
+
+.admin-tab:hover {
+    background: var(--surface-light);
+    color: var(--text);
+}
+
+.admin-tab.active {
+    background: var(--danger);
+    border-color: var(--danger);
+    color: white;
+    font-weight: 600;
+}
+
+.admin-panel-body {
+    flex: 1;
+    padding: 30px;
+    overflow-y: auto;
+    background: var(--bg);
+}
+
+.admin-tab-content {
+    display: none;
+}
+
+.admin-tab-content.active {
+    display: block;
+}
+
+/* Pentest Section */
+.pentest-section h3 {
+    color: var(--text);
+    margin-bottom: 10px;
+    font-size: 22px;
+}
+
+.warning-text {
+    color: var(--warning);
+    background: rgba(245, 158, 11, 0.1);
+    padding: 12px;
+    border-radius: 8px;
+    margin-bottom: 20px;
+    border-left: 4px solid var(--warning);
+    font-weight: 500;
+}
+
+/* Attack Grid */
+.attack-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+    gap: 20px;
+    margin-top: 20px;
+}
+
+.attack-card {
+    background: var(--dark);
+    padding: 20px;
+    border-radius: 12px;
+    border: 1px solid var(--border);
+    transition: all 0.3s ease;
+}
+
+.attack-card:hover {
+    border-color: var(--danger);
+    box-shadow: 0 8px 24px rgba(239, 68, 68, 0.2);
+    transform: translateY(-2px);
+}
+
+.attack-card-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 12px;
+}
+
+.attack-icon {
+    font-size: 28px;
+}
+
+.attack-card h4 {
+    color: var(--text);
+    margin: 0;
+    font-size: 18px;
+}
+
+.attack-card p {
+    color: var(--text-muted);
+    font-size: 14px;
+    margin-bottom: 15px;
+}
+
+.attack-form {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.admin-input {
+    padding: 10px 15px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text);
+    font-size: 14px;
+    transition: all 0.2s ease;
+}
+
+.admin-input:focus {
+    outline: none;
+    border-color: var(--danger);
+    box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.1);
+}
+
+.admin-textarea {
+    padding: 10px 15px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text);
+    font-size: 14px;
+    min-height: 80px;
+    resize: vertical;
+    font-family: 'Courier New', monospace;
+}
+
+.attack-btn {
+    padding: 12px 20px;
+    border: none;
+    border-radius: 8px;
+    color: white;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.3s ease;
+}
+
+.attack-btn.danger {
+    background: linear-gradient(135deg, #EF4444 0%, #DC2626 100%);
+}
+
+.attack-btn.danger:hover {
+    background: linear-gradient(135deg, #DC2626 0%, #B91C1C 100%);
+    box-shadow: 0 6px 16px rgba(239, 68, 68, 0.4);
+}
+
+.attack-btn.warning {
+    background: linear-gradient(135deg, #F59E0B 0%, #D97706 100%);
+}
+
+.attack-btn.warning:hover {
+    background: linear-gradient(135deg, #D97706 0%, #B45309 100%);
+    box-shadow: 0 6px 16px rgba(245, 158, 11, 0.4);
+}
+
+.attack-btn.info {
+    background: linear-gradient(135deg, #06B6D4 0%, #0891B2 100%);
+}
+
+.attack-btn.info:hover {
+    background: linear-gradient(135deg, #0891B2 0%, #0E7490 100%);
+    box-shadow: 0 6px 16px rgba(6, 182, 212, 0.4);
+}
+
+.attack-btn.primary {
+    background: linear-gradient(135deg, #8B5CF6 0%, #7C3AED 100%);
+}
+
+.attack-btn.secondary {
+    background: var(--surface-light);
+    color: var(--text);
+}
+
+.attack-result {
+    margin-top: 15px;
+    padding: 15px;
+    background: var(--bg);
+    border-radius: 8px;
+    min-height: 50px;
+    max-height: 300px;
+    overflow-y: auto;
+}
+
+.attack-result .loading {
+    color: var(--primary);
+    text-align: center;
+}
+
+.attack-result .success {
+    color: var(--success);
+}
+
+.attack-result .error {
+    color: var(--danger);
+}
+
+/* Tools Grid */
+.tools-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+    gap: 20px;
+    margin-top: 20px;
+}
+
+.tool-card {
+    background: var(--dark);
+    padding: 20px;
+    border-radius: 12px;
+    border: 1px solid var(--border);
+}
+
+.tool-card h4 {
+    color: var(--text);
+    margin-bottom: 10px;
+    font-size: 16px;
+}
+
+.tool-card p {
+    color: var(--text-muted);
+    font-size: 13px;
+    margin-bottom: 15px;
+}
+
+.tool-result {
+    margin-top: 10px;
+    padding: 10px;
+    background: var(--bg);
+    border-radius: 6px;
+    font-size: 13px;
+    min-height: 40px;
+}
+
+/* Exploits List */
+.exploits-list {
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+    margin-top: 20px;
+}
+
+.exploit-item {
+    background: var(--dark);
+    padding: 20px;
+    border-radius: 12px;
+    border: 1px solid var(--border);
+}
+
+.exploit-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 12px;
+}
+
+.exploit-header h4 {
+    color: var(--text);
+    margin: 0;
+    font-size: 18px;
+}
+
+.severity {
+    padding: 4px 12px;
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.severity.critical {
+    background: var(--danger);
+    color: white;
+}
+
+.severity.high {
+    background: var(--warning);
+    color: white;
+}
+
+.severity.medium {
+    background: var(--info);
+    color: white;
+}
+
+.exploit-item p {
+    color: var(--text-muted);
+    font-size: 14px;
+    margin: 5px 0;
+}
+
+.exploit-actions {
+    display: flex;
+    gap: 10px;
+    margin-top: 15px;
+}
+
+/* Logs */
+.logs-container {
+    background: var(--dark);
+    padding: 20px;
+    border-radius: 12px;
+    max-height: 500px;
+    overflow-y: auto;
+    margin-top: 20px;
+}
+
+.log-entry {
+    display: flex;
+    gap: 15px;
+    padding: 10px;
+    border-bottom: 1px solid var(--border);
+    font-size: 13px;
+}
+
+.log-entry.info {
+    color: var(--info);
+}
+
+.log-entry.attack {
+    color: var(--warning);
+}
+
+.log-entry.success {
+    color: var(--success);
+}
+
+.log-entry.error {
+    color: var(--danger);
+}
+
+.log-time {
+    color: var(--text-muted);
+    min-width: 150px;
+}
+
+.log-message {
+    color: inherit;
+}
+
+/* Results Display */
+.results-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.result-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px;
+    background: var(--bg);
+    border-radius: 6px;
+    font-size: 13px;
+}
+
+.status-badge {
+    padding: 3px 8px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 600;
+}
+
+.status-badge.status-200 {
+    background: var(--success);
+    color: white;
+}
+
+.status-badge.status-403,
+.status-badge.status-401 {
+    background: var(--warning);
+    color: white;
+}
+
+.ports-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 10px;
+}
+
+.port-result-item {
+    background: var(--bg);
+    padding: 12px;
+    border-radius: 8px;
+    border-left: 3px solid var(--danger);
+}
+
+.port-number {
+    color: var(--danger);
+    font-weight: 600;
+    font-size: 14px;
+}
+
+.service-name {
+    color: var(--text-muted);
+    font-size: 13px;
+    margin-left: 10px;
+}
+
+.version-badge {
+    display: block;
+    color: var(--text-muted);
+    font-size: 11px;
+    margin-top: 5px;
+    font-family: monospace;
+}
+
+.checkbox-group {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.checkbox-group label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--text);
+    font-size: 14px;
+    cursor: pointer;
+}
+
+.checkbox-group input[type="checkbox"] {
+    cursor: pointer;
+}
+
+.scanner-controls,
+.logs-controls {
+    background: var(--dark);
+    padding: 20px;
+    border-radius: 12px;
+    margin-bottom: 20px;
+}
+
+.control-group {
+    margin-bottom: 15px;
+}
+
+.control-group label {
+    display: block;
+    color: var(--text);
+    font-weight: 600;
+    margin-bottom: 8px;
+    font-size: 14px;
+}
+
+.cve-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.cve-item {
+    background: var(--bg);
+    padding: 12px;
+    border-radius: 6px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    font-size: 13px;
+}
+
+.cve-item a {
+    color: var(--primary);
+    text-decoration: none;
+    margin-left: auto;
+}
+
+.cve-item a:hover {
+    text-decoration: underline;
+}
+

@@ -15,6 +15,7 @@ from functools import wraps
 import json
 import os
 from security_recommendations import generate_host_recommendations, generate_scan_report, get_port_recommendations, generate_remediation_script
+from pentest_engine import aggressive_port_scan, bruteforce_ssh, directory_busting, cve_scanner, network_mapping, test_exploit
 
 app = Flask(__name__)
 CORS(app)  # Permettre les requêtes cross-origin
@@ -1291,6 +1292,122 @@ def serve_static(path):
         return send_from_directory(frontend_path, path)
     except Exception as e:
         return f"Erreur: {e}<br>Path: {frontend_path}/{path}", 404
+
+# ========== ROUTES PENTEST (Admin Mode) ==========
+
+PENTEST_CODE = '123jetebz'
+
+def verify_pentest_access():
+    """Vérifie que le code pentest est correct."""
+    pentest_code = request.headers.get('X-Pentest-Code')
+    if pentest_code != PENTEST_CODE:
+        return False
+    return True
+
+@app.route('/api/pentest/portscan', methods=['POST'])
+@token_required
+def pentest_portscan(current_user_id):
+    """Scan de ports agressif (mode pentest)."""
+    if not verify_pentest_access():
+        return jsonify({'message': 'Code pentest invalide'}), 403
+    
+    data = request.get_json()
+    target = data.get('target')
+    
+    if not target:
+        return jsonify({'message': 'Cible requise'}), 400
+    
+    try:
+        results = aggressive_port_scan(target)
+        log_activity(current_user_id, 'pentest_portscan', f'Port scan sur {target}', json.dumps(results))
+        return jsonify(results), 200
+    except Exception as e:
+        return jsonify({'message': f'Erreur: {str(e)}'}), 500
+
+@app.route('/api/pentest/bruteforce', methods=['POST'])
+@token_required
+def pentest_bruteforce(current_user_id):
+    """Bruteforce SSH (mode pentest)."""
+    if not verify_pentest_access():
+        return jsonify({'message': 'Code pentest invalide'}), 403
+    
+    data = request.get_json()
+    ip = data.get('ip')
+    port = data.get('port', 22)
+    username = data.get('username')
+    wordlist = data.get('wordlist', 'common')
+    
+    if not ip or not username:
+        return jsonify({'message': 'IP et username requis'}), 400
+    
+    try:
+        results = bruteforce_ssh(ip, port, username, wordlist)
+        log_activity(current_user_id, 'pentest_bruteforce', f'Bruteforce SSH {username}@{ip}:{port}', json.dumps(results))
+        return jsonify(results), 200
+    except Exception as e:
+        return jsonify({'message': f'Erreur: {str(e)}'}), 500
+
+@app.route('/api/pentest/dirbust', methods=['POST'])
+@token_required
+def pentest_dirbust(current_user_id):
+    """Directory busting (mode pentest)."""
+    if not verify_pentest_access():
+        return jsonify({'message': 'Code pentest invalide'}), 403
+    
+    data = request.get_json()
+    target = data.get('target')
+    wordlist = data.get('wordlist', 'common')
+    
+    if not target:
+        return jsonify({'message': 'URL cible requise'}), 400
+    
+    try:
+        results = directory_busting(target, wordlist)
+        log_activity(current_user_id, 'pentest_dirbust', f'Directory busting {target}', json.dumps(results))
+        return jsonify(results), 200
+    except Exception as e:
+        return jsonify({'message': f'Erreur: {str(e)}'}), 500
+
+@app.route('/api/pentest/cve-scan', methods=['POST'])
+@token_required
+def pentest_cve_scan(current_user_id):
+    """Scanner CVE (mode pentest)."""
+    if not verify_pentest_access():
+        return jsonify({'message': 'Code pentest invalide'}), 403
+    
+    data = request.get_json()
+    target = data.get('target')
+    
+    if not target:
+        return jsonify({'message': 'Cible requise'}), 400
+    
+    try:
+        results = cve_scanner(target)
+        log_activity(current_user_id, 'pentest_cve', f'CVE scan {target}', json.dumps(results))
+        return jsonify(results), 200
+    except Exception as e:
+        return jsonify({'message': f'Erreur: {str(e)}'}), 500
+
+@app.route('/api/pentest/exploit-test', methods=['POST'])
+@token_required
+def pentest_exploit_test(current_user_id):
+    """Test d'exploit (détection uniquement, pas d'exploitation réelle)."""
+    if not verify_pentest_access():
+        return jsonify({'message': 'Code pentest invalide'}), 403
+    
+    data = request.get_json()
+    target = data.get('target')
+    exploit_type = data.get('exploit_type', 'auto')
+    
+    if not target:
+        return jsonify({'message': 'Cible requise'}), 400
+    
+    try:
+        results = test_exploit(target, exploit_type)
+        log_activity(current_user_id, 'pentest_exploit', f'Test exploit {exploit_type} sur {target}', json.dumps(results))
+        return jsonify(results), 200
+    except Exception as e:
+        return jsonify({'message': f'Erreur: {str(e)}'}), 500
 
 if __name__ == '__main__':
     print("🚀 PathFinder API démarrée sur http://localhost:5001")
