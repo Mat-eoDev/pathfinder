@@ -89,3 +89,8 @@ PathFinderWeb/backend/wordlists/*.dic
 PathFinderWeb/backend/wordlists/*.lst
 !PathFinderWeb/backend/wordlists/common_passwords.txt
 
+
+# Wordlists volumineuses (pentest)
+PathFinderWeb/backend/wordlists/rockyou.txt
+PathFinderWeb/backend/wordlists/*.dic
+!PathFinderWeb/backend/wordlists/common_passwords.txt
