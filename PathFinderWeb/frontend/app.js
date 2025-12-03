@@ -697,26 +697,38 @@ function displaySecurityRecommendations(securityReport) {
         html += `<h4 style="color: var(--primary); margin-bottom: 20px;">💡 Solutions de Remédiation par Hôte</h4>`;
         
         securityReport.hosts_recommendations.forEach(hostRec => {
+            // Vérifications de sécurité
+            if (!hostRec || !hostRec.host_summary) {
+                console.warn('Host recommendation invalide:', hostRec);
+                return;
+            }
+            
             const host = hostRec.host_summary;
-            const riskClass = `risk-${host.risk_level.toLowerCase()}`;
+            const riskLevel = (host.risk_level || 'low').toLowerCase();
+            const riskClass = `risk-${riskLevel}`;
+            const globalAssessment = hostRec.global_assessment || {
+                priority: '🟢 Faible - Amélioration continue',
+                timeline: 'Quand possible',
+                general_advice: ['Maintenir les bonnes pratiques']
+            };
             
             html += `
-                <div class="recommendation-card" style="background: var(--dark); padding: 20px; border-radius: 12px; margin-bottom: 20px; border-left: 4px solid var(--${host.risk_level === 'critical' ? 'danger' : host.risk_level === 'high' ? 'warning' : 'success'});">
+                <div class="recommendation-card" style="background: var(--dark); padding: 20px; border-radius: 12px; margin-bottom: 20px; border-left: 4px solid var(--${riskLevel === 'critical' ? 'danger' : riskLevel === 'high' ? 'warning' : 'success'});">
                     <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 15px;">
                         <div>
                             <div style="font-size: 18px; font-weight: 600; color: var(--text); margin-bottom: 5px;">
-                                ${host.ip} ${host.hostname !== 'N/A' ? `(${host.hostname})` : ''}
+                                ${host.ip || 'IP inconnue'} ${host.hostname && host.hostname !== 'N/A' ? `(${host.hostname})` : ''}
                             </div>
                             <div style="font-size: 14px; color: var(--text-muted);">
-                                ${host.os} • Score: ${host.priority_score}/100
+                                ${host.os || 'OS inconnu'} • Score: ${host.priority_score || 0}/100
                             </div>
                         </div>
                         <div style="text-align: right;">
-                            <div style="font-size: 14px; font-weight: 600; color: var(--${host.risk_level === 'critical' ? 'danger' : host.risk_level === 'high' ? 'warning' : 'success'});">
-                                ${hostRec.global_assessment.priority}
+                            <div style="font-size: 14px; font-weight: 600; color: var(--${riskLevel === 'critical' ? 'danger' : riskLevel === 'high' ? 'warning' : 'success'});">
+                                ${globalAssessment.priority}
                             </div>
                             <div style="font-size: 12px; color: var(--text-muted);">
-                                ${hostRec.global_assessment.timeline}
+                                ${globalAssessment.timeline}
                             </div>
                         </div>
                     </div>
@@ -800,7 +812,7 @@ function displaySecurityRecommendations(securityReport) {
                     
                     <div style="margin-top: 15px; padding: 12px; background: rgba(255,255,255,0.03); border-radius: 6px;">
                         <div style="font-size: 13px; color: var(--text-muted);">
-                            <strong>Conseil général:</strong> ${hostRec.global_assessment.general_advice.join(' • ')}
+                            <strong>Conseil général:</strong> ${(globalAssessment.general_advice || ['Maintenir les bonnes pratiques']).join(' • ')}
                         </div>
                     </div>
                 </div>

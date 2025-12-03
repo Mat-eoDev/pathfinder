@@ -61,8 +61,8 @@ class TooltipSystem {
 window.tooltips = new TooltipSystem();
 
 // CSS pour les tooltips
-const style = document.createElement('style');
-style.textContent = `
+const tooltipStyle = document.createElement('style');
+tooltipStyle.textContent = `
 .tooltip {
     position: absolute;
     background: var(--bg);
@@ -121,5 +121,5 @@ style.textContent = `
     border-right-color: var(--bg);
 }
 `;
-document.head.appendChild(style);
+document.head.appendChild(tooltipStyle);
 

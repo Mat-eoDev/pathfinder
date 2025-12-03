@@ -405,15 +405,17 @@ def generate_host_recommendations(host_data):
     Returns:
         dict avec recommendations structurées
     """
+    risk_level = host_data.get('risk_level', 'low')
+    
     recommendations = {
         "host_summary": {
             "ip": host_data.get('ip_address'),
             "hostname": host_data.get('hostname', 'N/A'),
             "os": host_data.get('os_detected', 'Inconnu'),
-            "risk_level": host_data.get('risk_level', 'low'),
+            "risk_level": risk_level,
             "priority_score": host_data.get('priority_score', 0)
         },
-        "global_assessment": RISK_LEVEL_ACTIONS.get(host_data.get('risk_level', 'low')),
+        "global_assessment": RISK_LEVEL_ACTIONS.get(risk_level, RISK_LEVEL_ACTIONS['low']),
         "ports_analysis": [],
         "quick_wins": [],
         "strategic_actions": []
@@ -425,7 +427,19 @@ def generate_host_recommendations(host_data):
     high_count = 0
     
     for port_info in open_ports:
-        port = port_info.get('port') if isinstance(port_info, dict) else port_info
+        # Gérer différents formats : dict avec 'port', ou juste un nombre
+        if isinstance(port_info, dict):
+            port = port_info.get('port') or port_info.get('number')
+        elif isinstance(port_info, (int, str)):
+            port = int(port_info) if isinstance(port_info, str) and port_info.isdigit() else port_info
+        else:
+            port = port_info
+        
+        # Ignorer si port invalide
+        if not port or (isinstance(port, str) and not port.isdigit()):
+            continue
+            
+        port = int(port) if isinstance(port, str) else port
         port_rec = get_port_recommendations(port)
         
         recommendations["ports_analysis"].append({
@@ -444,20 +458,25 @@ def generate_host_recommendations(host_data):
     
     # Quick wins (actions rapides à fort impact)
     if critical_count > 0:
-        recommendations["quick_wins"].append({
-            "action": "Firewall immédiat",
-            "commands": [
-                "# Bloquer TOUS les ports critiques",
-                "sudo ufw enable",
-                *[f"sudo ufw deny {p['port']}/tcp  # {p['service']}" 
-                  for p in recommendations["ports_analysis"] 
-                  if p['risk'] == 'critical']
-            ],
-            "impact": "Réduit immédiatement la surface d'attaque"
-        })
+        critical_ports = [
+            f"sudo ufw deny {p.get('port', 'PORT')}/tcp  # {p.get('service', 'Service')}" 
+            for p in recommendations["ports_analysis"] 
+            if p.get('risk') == 'critical' and p.get('port')
+        ]
+        
+        if critical_ports:
+            recommendations["quick_wins"].append({
+                "action": "Firewall immédiat",
+                "commands": [
+                    "# Bloquer TOUS les ports critiques",
+                    "sudo ufw enable",
+                    *critical_ports
+                ],
+                "impact": "Réduit immédiatement la surface d'attaque"
+            })
     
     # Actions stratégiques
-    if any(p['port'] in [80, 8080] for p in recommendations["ports_analysis"]):
+    if any(p.get('port') in [80, 8080] for p in recommendations["ports_analysis"]):
         recommendations["strategic_actions"].append({
             "title": "Migration HTTPS",
             "description": "Chiffrer tout le trafic web",
@@ -473,7 +492,7 @@ def generate_host_recommendations(host_data):
             ]
         })
     
-    if any(p['port'] in [3306, 5432, 27017, 6379] for p in recommendations["ports_analysis"]):
+    if any(p.get('port') in [3306, 5432, 27017, 6379] for p in recommendations["ports_analysis"]):
         recommendations["strategic_actions"].append({
             "title": "Isolation des bases de données",
             "description": "Ne JAMAIS exposer les BDD sur Internet",
