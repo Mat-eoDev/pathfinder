@@ -921,15 +921,116 @@ async function launchNetworkMapping() {
         return;
     }
     
-    resultDiv.innerHTML = '<div class="loading">⏳ Cartographie réseau en cours...</div>';
+    resultDiv.innerHTML = '<div class="loading">⏳ Cartographie réseau en cours... (peut prendre 2-5 min)</div>';
     addPentestLog(`Network mapping: ${range}`, 'attack');
     
-    // Utiliser le scan normal mais afficher différemment
-    notify.info('Fonction en développement - Utiliser le scan normal pour le moment');
+    try {
+        const response = await fetch(`${API_URL}/pentest/network-map`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${authToken}`,
+                'X-Pentest-Code': ADMIN_CODE,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                network_range: range
+            })
+        });
+        
+        const data = await response.json();
+        
+        if (response.ok) {
+            resultDiv.innerHTML = `
+                <div class="success">
+                    ✅ Cartographie terminée
+                    <div style="margin-top: 10px; font-size: 14px;">
+                        📊 Réseau: ${data.network}<br>
+                        🖥️ Hôtes totaux: ${data.total_hosts || 0}<br>
+                        ✅ Hôtes actifs: ${data.alive_hosts || 0}<br>
+                        🌐 Gateway: ${data.gateway || 'N/A'}<br>
+                        📡 DNS: ${data.dns_servers?.join(', ') || 'N/A'}<br>
+                        ⏱️ Temps: ${data.scan_time || 'N/A'}
+                    </div>
+                </div>
+                ${data.hosts && data.hosts.length > 0 ? `
+                    <div style="margin-top: 15px;">
+                        <strong>Hôtes actifs détectés:</strong>
+                        <div class="hosts-list" style="margin-top: 10px; max-height: 300px; overflow-y: auto;">
+                            ${data.hosts.map(h => `
+                                <div style="padding: 8px; background: var(--bg); border-radius: 6px; margin-bottom: 5px; font-family: monospace;">
+                                    💻 ${h.ip || h} ${h.ports ? `(Ports: ${h.ports.join(', ')})` : ''}
+                                </div>
+                            `).join('')}
+                        </div>
+                    </div>
+                ` : ''}
+            `;
+            addPentestLog(`Network mapping: ${data.alive_hosts || 0} hôtes actifs`, 'success');
+            notify.success(`✅ ${data.alive_hosts || 0} hôte(s) actif(s) détecté(s)`);
+        } else {
+            resultDiv.innerHTML = `<div class="error">❌ ${data.message || data.error || 'Erreur'}</div>`;
+            notify.error(data.message || data.error || 'Erreur');
+        }
+    } catch (error) {
+        resultDiv.innerHTML = `<div class="error">❌ Erreur: ${error.message}</div>`;
+        notify.error('Erreur connexion API');
+    }
 }
 
 async function launchAdvancedScan() {
-    notify.info('Fonction avancée en développement - Utiliser le scan normal');
+    const range = document.getElementById('advanced-range').value;
+    const scanType = document.getElementById('scan-type').value;
+    const scanSpeed = document.getElementById('scan-speed').value;
+    const osDetect = document.getElementById('opt-os-detect').checked;
+    const serviceVersion = document.getElementById('opt-service-version').checked;
+    const scriptScan = document.getElementById('opt-script-scan').checked;
+    const traceroute = document.getElementById('opt-traceroute').checked;
+    const resultDiv = document.getElementById('advanced-scan-result');
+    
+    if (!range) {
+        notify.error('Entrer une plage réseau');
+        return;
+    }
+    
+    resultDiv.innerHTML = '<div class="loading">⏳ Scan avancé en cours... (peut prendre 5-10 min)</div>';
+    addPentestLog(`Advanced scan: ${range} (${scanType}, ${scanSpeed})`, 'attack');
+    
+    try {
+        const response = await fetch(`${API_URL}/pentest/advanced-scan`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${authToken}`,
+                'X-Pentest-Code': ADMIN_CODE,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                network_range: range,
+                scan_type: scanType,
+                scan_speed: scanSpeed,
+                options: {
+                    os_detect: osDetect,
+                    service_version: serviceVersion,
+                    script_scan: scriptScan,
+                    traceroute: traceroute,
+                    comprehensive: true
+                }
+            })
+        });
+        
+        const data = await response.json();
+        
+        if (response.ok) {
+            displayPortScanResults(data, resultDiv);
+            addPentestLog(`Advanced scan terminé: ${data.open_ports?.length || 0} ports`, 'success');
+            notify.success(`✅ Scan avancé terminé`);
+        } else {
+            resultDiv.innerHTML = `<div class="error">❌ ${data.message || 'Erreur'}</div>`;
+            notify.error(data.message || 'Erreur');
+        }
+    } catch (error) {
+        resultDiv.innerHTML = `<div class="error">❌ Erreur: ${error.message}</div>`;
+        notify.error('Erreur connexion API');
+    }
 }
 
 function testExploit(type) {
@@ -953,17 +1054,189 @@ function showExploitInfo(type) {
     alert(info[type] || 'Information non disponible');
 }
 
-// Fonctions tools additionnelles (stubs)
+// Fonctions tools additionnelles (RÉELLES)
 async function crackHash() {
-    notify.info('Fonction en développement');
+    const hashInput = document.getElementById('hash-input').value.trim();
+    const hashType = document.getElementById('hash-type').value;
+    const resultDiv = document.getElementById('hash-result');
+    
+    if (!hashInput) {
+        notify.error('Entrer un hash');
+        return;
+    }
+    
+    resultDiv.innerHTML = '<div class="loading">⏳ Cracking en cours...</div>';
+    addPentestLog(`Hash crack: ${hashType} - ${hashInput.substring(0, 20)}...`, 'attack');
+    
+    try {
+        const response = await fetch(`${API_URL}/pentest/tools/hash-crack`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${authToken}`,
+                'X-Pentest-Code': ADMIN_CODE,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                hash: hashInput,
+                hash_type: hashType
+            })
+        });
+        
+        const data = await response.json();
+        
+        if (response.ok) {
+            if (data.success) {
+                resultDiv.innerHTML = `
+                    <div class="error" style="padding: 15px;">
+                        <div style="font-size: 18px; margin-bottom: 10px;">🚨 HASH CRACKÉ !</div>
+                        <div style="background: rgba(0,0,0,0.3); padding: 12px; border-radius: 6px; font-family: monospace; font-size: 16px; color: #10B981;">
+                            Hash: <strong>${hashInput}</strong><br>
+                            Type: <strong>${hashType.toUpperCase()}</strong><br>
+                            Password: <strong style="color: var(--danger);">${data.password}</strong><br>
+                            Tentatives: ${data.attempts}
+                        </div>
+                    </div>
+                `;
+                notify.error(`🚨 Password trouvé: ${data.password}`);
+                addPentestLog(`⚠️ Hash cracké: ${data.password}`, 'error');
+            } else {
+                resultDiv.innerHTML = `
+                    <div class="info" style="padding: 15px;">
+                        ❌ Hash non cracké avec wordlist commune
+                        <div style="margin-top: 10px; font-size: 13px; color: var(--text-muted);">
+                            Tentatives: ${data.attempts}<br>
+                            ${data.info || 'Essayer une wordlist plus complète'}
+                        </div>
+                    </div>
+                `;
+                notify.info('Hash non trouvé dans wordlist');
+                addPentestLog(`Hash crack: Non trouvé (${data.attempts} tentatives)`, 'info');
+            }
+        } else {
+            resultDiv.innerHTML = `<div class="error">❌ ${data.message || 'Erreur'}</div>`;
+            notify.error(data.message || 'Erreur');
+        }
+    } catch (error) {
+        resultDiv.innerHTML = `<div class="error">❌ Erreur: ${error.message}</div>`;
+        notify.error('Erreur connexion API');
+    }
 }
 
 async function reverseDNS() {
-    notify.info('Fonction en développement');
+    const ip = document.getElementById('rdns-ip').value.trim();
+    const resultDiv = document.getElementById('rdns-result');
+    
+    if (!ip) {
+        notify.error('Entrer une IP');
+        return;
+    }
+    
+    resultDiv.innerHTML = '<div class="loading">⏳ Résolution en cours...</div>';
+    addPentestLog(`Reverse DNS: ${ip}`, 'info');
+    
+    try {
+        const response = await fetch(`${API_URL}/pentest/tools/reverse-dns`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${authToken}`,
+                'X-Pentest-Code': ADMIN_CODE,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                ip: ip
+            })
+        });
+        
+        const data = await response.json();
+        
+        if (response.ok) {
+            if (data.hostname) {
+                resultDiv.innerHTML = `
+                    <div class="success" style="padding: 15px;">
+                        ✅ Reverse DNS trouvé
+                        <div style="margin-top: 10px; font-family: monospace; font-size: 14px;">
+                            IP: <strong>${data.ip}</strong><br>
+                            Hostname: <strong>${data.hostname}</strong><br>
+                            ${data.aliases && data.aliases.length > 0 ? `Aliases: ${data.aliases.join(', ')}<br>` : ''}
+                            ${data.addresses && data.addresses.length > 0 ? `Addresses: ${data.addresses.join(', ')}` : ''}
+                        </div>
+                    </div>
+                `;
+                notify.success(`Hostname: ${data.hostname}`);
+                addPentestLog(`Reverse DNS: ${data.hostname}`, 'success');
+            } else {
+                resultDiv.innerHTML = `
+                    <div class="info" style="padding: 15px;">
+                        ❌ ${data.error || 'Pas de reverse DNS'}
+                    </div>
+                `;
+                notify.info('Pas de reverse DNS');
+            }
+        } else {
+            resultDiv.innerHTML = `<div class="error">❌ ${data.message || 'Erreur'}</div>`;
+            notify.error(data.message || 'Erreur');
+        }
+    } catch (error) {
+        resultDiv.innerHTML = `<div class="error">❌ Erreur: ${error.message}</div>`;
+        notify.error('Erreur connexion API');
+    }
 }
 
 async function whoisLookup() {
-    notify.info('Fonction en développement');
+    const target = document.getElementById('whois-target').value.trim();
+    const resultDiv = document.getElementById('whois-result');
+    
+    if (!target) {
+        notify.error('Entrer un domaine ou IP');
+        return;
+    }
+    
+    resultDiv.innerHTML = '<div class="loading">⏳ WHOIS lookup en cours...</div>';
+    addPentestLog(`WHOIS: ${target}`, 'info');
+    
+    try {
+        const response = await fetch(`${API_URL}/pentest/tools/whois`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${authToken}`,
+                'X-Pentest-Code': ADMIN_CODE,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                target: target
+            })
+        });
+        
+        const data = await response.json();
+        
+        if (response.ok && data.success) {
+            resultDiv.innerHTML = `
+                <div class="success" style="padding: 15px;">
+                    ✅ WHOIS récupéré
+                    <div style="margin-top: 10px; max-height: 400px; overflow-y: auto; background: var(--bg); padding: 12px; border-radius: 6px; font-family: monospace; font-size: 12px; white-space: pre-wrap;">
+                        ${data.whois_data || 'Aucune donnée'}
+                    </div>
+                </div>
+            `;
+            notify.success('WHOIS récupéré');
+            addPentestLog(`WHOIS: ${target} - Données récupérées`, 'success');
+        } else {
+            resultDiv.innerHTML = `
+                <div class="info" style="padding: 15px;">
+                    ❌ ${data.error || 'Erreur WHOIS'}
+                    ${data.error && data.error.includes('install') ? `
+                        <div style="margin-top: 10px; font-size: 13px; color: var(--text-muted);">
+                            Installer: <code>brew install whois</code> (macOS) ou <code>apt install whois</code> (Linux)
+                        </div>
+                    ` : ''}
+                </div>
+            `;
+            notify.info(data.error || 'Erreur WHOIS');
+        }
+    } catch (error) {
+        resultDiv.innerHTML = `<div class="error">❌ Erreur: ${error.message}</div>`;
+        notify.error('Erreur connexion API');
+    }
 }
 
 async function startPacketCapture() {

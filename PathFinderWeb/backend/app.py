@@ -15,7 +15,10 @@ from functools import wraps
 import json
 import os
 from security_recommendations import generate_host_recommendations, generate_scan_report, get_port_recommendations, generate_remediation_script
-from pentest_engine import aggressive_port_scan, bruteforce_ssh, directory_busting, cve_scanner, network_mapping, test_exploit
+from pentest_engine import (
+    aggressive_port_scan, bruteforce_ssh, directory_busting, cve_scanner, 
+    network_mapping, test_exploit, crack_hash, reverse_dns_lookup, whois_lookup
+)
 
 app = Flask(__name__)
 CORS(app)  # Permettre les requêtes cross-origin
@@ -1405,6 +1408,111 @@ def pentest_exploit_test(current_user_id):
     try:
         results = test_exploit(target, exploit_type)
         log_activity(current_user_id, 'pentest_exploit', f'Test exploit {exploit_type} sur {target}', json.dumps(results))
+        return jsonify(results), 200
+    except Exception as e:
+        return jsonify({'message': f'Erreur: {str(e)}'}), 500
+
+@app.route('/api/pentest/network-map', methods=['POST'])
+@token_required
+def pentest_network_map(current_user_id):
+    """Cartographie réseau complète."""
+    if not verify_pentest_access():
+        return jsonify({'message': 'Code pentest invalide'}), 403
+    
+    data = request.get_json()
+    network_range = data.get('network_range')
+    
+    if not network_range:
+        return jsonify({'message': 'Plage réseau requise'}), 400
+    
+    try:
+        results = network_mapping(network_range)
+        log_activity(current_user_id, 'pentest_network_map', f'Network mapping {network_range}', json.dumps(results))
+        return jsonify(results), 200
+    except Exception as e:
+        return jsonify({'message': f'Erreur: {str(e)}'}), 500
+
+@app.route('/api/pentest/advanced-scan', methods=['POST'])
+@token_required
+def pentest_advanced_scan(current_user_id):
+    """Scan avancé avec options."""
+    if not verify_pentest_access():
+        return jsonify({'message': 'Code pentest invalide'}), 403
+    
+    data = request.get_json()
+    network_range = data.get('network_range')
+    scan_type = data.get('scan_type', 'connect')
+    scan_speed = data.get('scan_speed', 'normal')
+    options = data.get('options', {})
+    
+    if not network_range:
+        return jsonify({'message': 'Plage réseau requise'}), 400
+    
+    try:
+        # Utiliser le scan agressif avec options
+        results = aggressive_port_scan(network_range, scan_all=options.get('comprehensive', False))
+        log_activity(current_user_id, 'pentest_advanced_scan', f'Advanced scan {network_range}', json.dumps(results))
+        return jsonify(results), 200
+    except Exception as e:
+        return jsonify({'message': f'Erreur: {str(e)}'}), 500
+
+@app.route('/api/pentest/tools/hash-crack', methods=['POST'])
+@token_required
+def pentest_hash_crack(current_user_id):
+    """Cracker un hash."""
+    if not verify_pentest_access():
+        return jsonify({'message': 'Code pentest invalide'}), 403
+    
+    data = request.get_json()
+    hash_value = data.get('hash')
+    hash_type = data.get('hash_type', 'md5')
+    
+    if not hash_value:
+        return jsonify({'message': 'Hash requis'}), 400
+    
+    try:
+        results = crack_hash(hash_value, hash_type)
+        log_activity(current_user_id, 'pentest_hash_crack', f'Hash crack {hash_type}', json.dumps(results))
+        return jsonify(results), 200
+    except Exception as e:
+        return jsonify({'message': f'Erreur: {str(e)}'}), 500
+
+@app.route('/api/pentest/tools/reverse-dns', methods=['POST'])
+@token_required
+def pentest_reverse_dns(current_user_id):
+    """Reverse DNS lookup."""
+    if not verify_pentest_access():
+        return jsonify({'message': 'Code pentest invalide'}), 403
+    
+    data = request.get_json()
+    ip = data.get('ip')
+    
+    if not ip:
+        return jsonify({'message': 'IP requise'}), 400
+    
+    try:
+        results = reverse_dns_lookup(ip)
+        log_activity(current_user_id, 'pentest_reverse_dns', f'Reverse DNS {ip}', json.dumps(results))
+        return jsonify(results), 200
+    except Exception as e:
+        return jsonify({'message': f'Erreur: {str(e)}'}), 500
+
+@app.route('/api/pentest/tools/whois', methods=['POST'])
+@token_required
+def pentest_whois(current_user_id):
+    """WHOIS lookup."""
+    if not verify_pentest_access():
+        return jsonify({'message': 'Code pentest invalide'}), 403
+    
+    data = request.get_json()
+    target = data.get('target')
+    
+    if not target:
+        return jsonify({'message': 'Cible requise'}), 400
+    
+    try:
+        results = whois_lookup(target)
+        log_activity(current_user_id, 'pentest_whois', f'WHOIS {target}', json.dumps(results))
         return jsonify(results), 200
     except Exception as e:
         return jsonify({'message': f'Erreur: {str(e)}'}), 500
