@@ -70,8 +70,6 @@ PathFinder-*.ips
 # Downloads (fichiers volumineux)
 PathFinderWeb/downloads/
 
-# Garder seulement le README dans downloads
-!PathFinderWeb/downloads/README.md
 
 # Environment variables
 .env
