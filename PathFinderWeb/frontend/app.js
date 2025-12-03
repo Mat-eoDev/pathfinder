@@ -444,6 +444,11 @@ async function viewScanDetails(scanId) {
         
         displayScanDetails(data.scan);
         
+        // Afficher les recommandations de sécurité
+        if (data.security_report) {
+            displaySecurityRecommendations(data.security_report);
+        }
+        
     } catch (error) {
         console.error('Erreur détails scan:', error);
     }
@@ -507,9 +512,195 @@ function displayScanDetails(scan) {
         
         <h3 style="color: var(--primary); margin-bottom: 20px;">🖥️ Hôtes Détectés</h3>
         ${hostsHtml}
+        
+        <div id="security-recommendations" style="margin-top: 30px;"></div>
     `;
     
     document.getElementById('scan-modal').style.display = 'flex';
+}
+
+// ========== RECOMMANDATIONS DE SÉCURITÉ ==========
+
+function displaySecurityRecommendations(securityReport) {
+    if (!securityReport) return;
+    
+    const recsContainer = document.getElementById('security-recommendations');
+    const summary = securityReport.executive_summary;
+    
+    // Score de sécurité avec couleur
+    let scoreColor = '#10B981'; // Vert
+    if (summary.score < 50) scoreColor = '#EF4444'; // Rouge
+    else if (summary.score < 75) scoreColor = '#F59E0B'; // Orange
+    
+    let html = `
+        <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 25px; border-radius: 15px; margin-bottom: 25px;">
+            <h3 style="color: white; margin-bottom: 15px; display: flex; align-items: center; gap: 10px;">
+                <span>🛡️</span> Rapport de Sécurité
+            </h3>
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 15px;">
+                <div style="background: rgba(255,255,255,0.1); backdrop-filter: blur(10px); padding: 15px; border-radius: 10px;">
+                    <div style="font-size: 32px; font-weight: 700; color: ${scoreColor};">${summary.score}/100</div>
+                    <div style="color: white; opacity: 0.9; font-size: 14px;">Score Sécurité</div>
+                </div>
+                <div style="background: rgba(255,255,255,0.1); backdrop-filter: blur(10px); padding: 15px; border-radius: 10px;">
+                    <div style="font-size: 32px; font-weight: 700; color: #EF4444;">${summary.critical_hosts}</div>
+                    <div style="color: white; opacity: 0.9; font-size: 14px;">Hôtes Critiques</div>
+                </div>
+                <div style="background: rgba(255,255,255,0.1); backdrop-filter: blur(10px); padding: 15px; border-radius: 10px;">
+                    <div style="font-size: 32px; font-weight: 700; color: #F59E0B;">${summary.high_risk_hosts}</div>
+                    <div style="color: white; opacity: 0.9; font-size: 14px;">Risque Élevé</div>
+                </div>
+            </div>
+        </div>
+    `;
+    
+    // Actions réseau globales (si présentes)
+    if (securityReport.network_wide_actions && securityReport.network_wide_actions.length > 0) {
+        html += `
+            <div style="background: var(--dark); padding: 20px; border-radius: 12px; margin-bottom: 25px; border-left: 4px solid #EF4444;">
+                <h4 style="color: #EF4444; margin-bottom: 15px; display: flex; align-items: center; gap: 8px;">
+                    <span>⚠️</span> Actions Urgentes Requises
+                </h4>
+                ${securityReport.network_wide_actions.map(action => `
+                    <div style="margin-bottom: 15px;">
+                        <div style="font-weight: 600; color: var(--text); margin-bottom: 8px;">
+                            ${action.priority}: ${action.action}
+                        </div>
+                        <div style="color: var(--text-muted); margin-bottom: 10px; font-size: 14px;">
+                            ${action.description}
+                        </div>
+                        <ul style="color: var(--text-muted); font-size: 14px; margin-left: 20px;">
+                            ${action.steps.map(step => `<li>${step}</li>`).join('')}
+                        </ul>
+                    </div>
+                `).join('')}
+            </div>
+        `;
+    }
+    
+    // Recommandations par hôte
+    if (securityReport.hosts_recommendations && securityReport.hosts_recommendations.length > 0) {
+        html += `<h4 style="color: var(--primary); margin-bottom: 20px;">💡 Solutions de Remédiation par Hôte</h4>`;
+        
+        securityReport.hosts_recommendations.forEach(hostRec => {
+            const host = hostRec.host_summary;
+            const riskClass = `risk-${host.risk_level.toLowerCase()}`;
+            
+            html += `
+                <div class="recommendation-card" style="background: var(--dark); padding: 20px; border-radius: 12px; margin-bottom: 20px; border-left: 4px solid var(--${host.risk_level === 'critical' ? 'danger' : host.risk_level === 'high' ? 'warning' : 'success'});">
+                    <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 15px;">
+                        <div>
+                            <div style="font-size: 18px; font-weight: 600; color: var(--text); margin-bottom: 5px;">
+                                ${host.ip} ${host.hostname !== 'N/A' ? `(${host.hostname})` : ''}
+                            </div>
+                            <div style="font-size: 14px; color: var(--text-muted);">
+                                ${host.os} • Score: ${host.priority_score}/100
+                            </div>
+                        </div>
+                        <div style="text-align: right;">
+                            <div style="font-size: 14px; font-weight: 600; color: var(--${host.risk_level === 'critical' ? 'danger' : host.risk_level === 'high' ? 'warning' : 'success'});">
+                                ${hostRec.global_assessment.priority}
+                            </div>
+                            <div style="font-size: 12px; color: var(--text-muted);">
+                                ${hostRec.global_assessment.timeline}
+                            </div>
+                        </div>
+                    </div>
+                    
+                    ${hostRec.quick_wins && hostRec.quick_wins.length > 0 ? `
+                        <div style="background: rgba(16, 185, 129, 0.1); padding: 15px; border-radius: 8px; margin-bottom: 20px;">
+                            <h5 style="color: #10B981; margin-bottom: 10px; display: flex; align-items: center; gap: 8px;">
+                                <span>⚡</span> Quick Wins - Impact Immédiat
+                            </h5>
+                            ${hostRec.quick_wins.map(qw => `
+                                <div style="margin-bottom: 10px;">
+                                    <div style="font-weight: 600; color: var(--text); margin-bottom: 8px;">${qw.action}</div>
+                                    <div style="background: var(--darker); padding: 12px; border-radius: 6px; font-family: 'Courier New', monospace; font-size: 13px; overflow-x: auto; color: #10B981;">
+                                        ${qw.commands.map(cmd => `<div>${escapeHtml(cmd)}</div>`).join('')}
+                                    </div>
+                                    <div style="color: var(--text-muted); font-size: 13px; margin-top: 8px;">
+                                        💡 ${qw.impact}
+                                    </div>
+                                </div>
+                            `).join('')}
+                        </div>
+                    ` : ''}
+                    
+                    ${hostRec.ports_analysis && hostRec.ports_analysis.length > 0 ? `
+                        <div style="margin-bottom: 20px;">
+                            <h5 style="color: var(--text); margin-bottom: 15px;">🔐 Analyse des Ports</h5>
+                            ${hostRec.ports_analysis.map(portAnalysis => `
+                                <details style="background: var(--darker); padding: 15px; border-radius: 8px; margin-bottom: 12px; cursor: pointer;">
+                                    <summary style="font-weight: 600; color: var(--text); cursor: pointer; list-style: none; display: flex; justify-content: between; align-items: center;">
+                                        <span>
+                                            <span style="display: inline-block; width: 80px; text-align: center; background: var(--${portAnalysis.risk === 'critical' ? 'danger' : portAnalysis.risk === 'high' ? 'warning' : portAnalysis.risk === 'medium' ? 'info' : 'success'}); padding: 4px 8px; border-radius: 4px; font-size: 12px; margin-right: 10px;">
+                                                Port ${portAnalysis.port}
+                                            </span>
+                                            ${portAnalysis.service} - ${portAnalysis.description}
+                                        </span>
+                                        <span style="margin-left: auto; font-size: 12px; color: var(--text-muted);">Cliquer pour voir les solutions ▼</span>
+                                    </summary>
+                                    
+                                    <div style="margin-top: 15px; padding-top: 15px; border-top: 1px solid var(--border);">
+                                        <div style="margin-bottom: 15px;">
+                                            <div style="font-weight: 600; color: var(--text); margin-bottom: 8px;">📋 Commandes de Correction</div>
+                                            <div style="background: #0f1419; padding: 15px; border-radius: 6px; font-family: 'Courier New', monospace; font-size: 13px; overflow-x: auto; line-height: 1.6; color: #a6e22e;">
+                                                ${portAnalysis.commands.map(cmd => `<div style="margin: 2px 0;">${escapeHtml(cmd)}</div>`).join('')}
+                                            </div>
+                                        </div>
+                                        
+                                        <div>
+                                            <div style="font-weight: 600; color: var(--text); margin-bottom: 8px;">💡 Recommandations</div>
+                                            <ul style="color: var(--text-muted); font-size: 14px; margin-left: 20px; line-height: 1.8;">
+                                                ${portAnalysis.recommendations.map(rec => `<li>${rec}</li>`).join('')}
+                                            </ul>
+                                        </div>
+                                    </div>
+                                </details>
+                            `).join('')}
+                        </div>
+                    ` : ''}
+                    
+                    ${hostRec.strategic_actions && hostRec.strategic_actions.length > 0 ? `
+                        <div style="background: rgba(102, 126, 234, 0.1); padding: 15px; border-radius: 8px;">
+                            <h5 style="color: #667eea; margin-bottom: 12px; display: flex; align-items: center; gap: 8px;">
+                                <span>🎯</span> Actions Stratégiques
+                            </h5>
+                            ${hostRec.strategic_actions.map(action => `
+                                <div style="margin-bottom: 15px; padding-bottom: 15px; border-bottom: 1px solid var(--border);">
+                                    <div style="font-weight: 600; color: var(--text); margin-bottom: 5px;">${action.title}</div>
+                                    <div style="color: var(--text-muted); font-size: 14px; margin-bottom: 10px;">${action.description}</div>
+                                    <div style="font-size: 14px; color: var(--text-muted); margin-bottom: 8px;">Étapes:</div>
+                                    <ol style="color: var(--text-muted); font-size: 14px; margin-left: 20px; line-height: 1.6;">
+                                        ${action.steps.map(step => `<li>${step}</li>`).join('')}
+                                    </ol>
+                                    ${action.resources && action.resources.length > 0 ? `
+                                        <div style="margin-top: 8px; font-size: 13px;">
+                                            📚 Ressources: ${action.resources.map(r => `<a href="${r}" target="_blank" style="color: #667eea; text-decoration: none;">${r}</a>`).join(' • ')}
+                                        </div>
+                                    ` : ''}
+                                </div>
+                            `).join('')}
+                        </div>
+                    ` : ''}
+                    
+                    <div style="margin-top: 15px; padding: 12px; background: rgba(255,255,255,0.03); border-radius: 6px;">
+                        <div style="font-size: 13px; color: var(--text-muted);">
+                            <strong>Conseil général:</strong> ${hostRec.global_assessment.general_advice.join(' • ')}
+                        </div>
+                    </div>
+                </div>
+            `;
+        });
+    }
+    
+    recsContainer.innerHTML = html;
+}
+
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
 }
 
 function closeModal() {

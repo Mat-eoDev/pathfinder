@@ -3690,3 +3690,88 @@ textarea:focus {
     }
 }
 
+/* ========== RECOMMANDATIONS DE SÉCURITÉ ========== */
+
+.recommendation-card {
+    transition: all 0.3s ease;
+}
+
+.recommendation-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+}
+
+.recommendation-card details[open] summary {
+    color: var(--primary);
+}
+
+.recommendation-card details summary:hover {
+    opacity: 0.8;
+}
+
+.recommendation-card details summary::before {
+    content: "▶";
+    display: inline-block;
+    margin-right: 8px;
+    transition: transform 0.3s ease;
+    color: var(--primary);
+}
+
+.recommendation-card details[open] summary::before {
+    transform: rotate(90deg);
+}
+
+.recommendation-card code {
+    font-family: 'Courier New', Consolas, Monaco, monospace;
+    background: var(--darker);
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 13px;
+    color: var(--success);
+}
+
+.risk-critical {
+    border-color: var(--danger) !important;
+}
+
+.risk-high {
+    border-color: var(--warning) !important;
+}
+
+.risk-medium {
+    border-color: var(--primary) !important;
+}
+
+.risk-low {
+    border-color: var(--success) !important;
+}
+
+#security-recommendations details {
+    transition: all 0.2s ease;
+}
+
+#security-recommendations details:hover {
+    background: rgba(6, 182, 212, 0.05);
+}
+
+#security-recommendations pre {
+    margin: 0;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+}
+
+#security-recommendations a {
+    transition: color 0.2s ease;
+}
+
+#security-recommendations a:hover {
+    color: var(--primary);
+    text-decoration: underline;
+}
+
+/* Variables supplémentaires */
+:root {
+    --darker: #0D0D0F;
+    --info: #06B6D4;
+}
+

@@ -14,6 +14,7 @@ import datetime
 from functools import wraps
 import json
 import os
+from security_recommendations import generate_host_recommendations, generate_scan_report, get_port_recommendations
 
 app = Flask(__name__)
 CORS(app)  # Permettre les requêtes cross-origin
@@ -357,7 +358,14 @@ def get_scan_detail(current_user_id, scan_id):
         scan['scan_date'] = scan['scan_date'].isoformat() if scan['scan_date'] else None
         scan['hosts'] = hosts
         
-        return jsonify({'scan': scan}), 200
+        # Générer les recommandations de sécurité
+        scan_with_recommendations = {'hosts': hosts}
+        security_report = generate_scan_report(scan_with_recommendations)
+        
+        return jsonify({
+            'scan': scan,
+            'security_report': security_report
+        }), 200
         
     except Error as e:
         return jsonify({'message': f'Erreur: {str(e)}'}), 500
