@@ -172,21 +172,109 @@ build_android() {
 # Fonction: Build Windows
 build_windows() {
     echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-    echo -e "${BLUE}🪟 Build Windows MSIX${NC}"
+    echo -e "${BLUE}🪟 Build Windows (Win 10/11)${NC}"
     echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
     echo ""
     
-    echo -e "${YELLOW}⚠️  Build Windows nécessite Windows ou Visual Studio${NC}"
-    echo ""
-    echo "Commande à exécuter sur Windows:"
-    echo ""
-    echo -e "${BLUE}dotnet publish -f net8.0-windows10.0.19041.0 -c Release \\${NC}"
-    echo -e "${BLUE}  -p:WindowsPackageType=Msix \\${NC}"
-    echo -e "${BLUE}  -p:AppxBundle=Always${NC}"
-    echo ""
-    echo "Ou utilise Visual Studio:"
-    echo "  Clic droit → Publish → Create App Packages"
-    echo ""
+    cd "$MAUI_DIR"
+    
+    # Vérifier si on est sur macOS (build cross-platform limité)
+    if [[ "$OSTYPE" == "darwin"* ]]; then
+        echo -e "${YELLOW}⚠️  Build Windows depuis macOS - Package non-signé${NC}"
+        echo ""
+        
+        # Tentative de build pour Windows (fichiers non-packagés)
+        echo "📦 Compilation pour Windows x64..."
+        
+        # Build la version Windows (DLL/EXE)
+        dotnet publish -f net8.0-windows10.0.19041.0 -c Release \
+            -p:RuntimeIdentifier=win10-x64 \
+            -p:SelfContained=true \
+            -p:PublishSingleFile=true \
+            -p:IncludeNativeLibrariesForSelfExtract=true 2>/dev/null || {
+            echo -e "${YELLOW}⚠️  Build MSIX échoué (normal depuis macOS)${NC}"
+            echo ""
+            echo "Alternative: Build fichiers standalone..."
+            
+            # Build simple sans packaging
+            dotnet build -f net8.0-windows10.0.19041.0 -c Release 2>/dev/null || {
+                echo -e "${RED}❌ Impossible de compiler pour Windows depuis macOS${NC}"
+                echo ""
+                echo -e "${BLUE}📝 Pour créer le package Windows complet:${NC}"
+                echo ""
+                echo "Option 1 - Sur une machine Windows:"
+                echo "  dotnet publish -f net8.0-windows10.0.19041.0 -c Release \\"
+                echo "    -p:WindowsPackageType=Msix \\"
+                echo "    -p:AppxBundle=Always \\"
+                echo "    -p:GenerateAppxPackageOnBuild=true"
+                echo ""
+                echo "Option 2 - Avec Visual Studio sur Windows:"
+                echo "  1. Ouvrir PathFinder.csproj"
+                echo "  2. Clic droit → Publish"
+                echo "  3. Create App Packages"
+                echo "  4. Sélectionner: Sideloading"
+                echo "  5. Windows 10/11 (x64, ARM64)"
+                echo ""
+                echo "Le fichier .msix sera dans bin/Release/..."
+                echo "Copier ensuite vers PathFinderWeb/downloads/PathFinder-Windows.msix"
+                echo ""
+                return 1
+            }
+        }
+        
+        # Chercher l'exécutable publié
+        WIN_EXE=$(find bin/Release/net8.0-windows10.0.19041.0/win10-x64/publish -name "PathFinder.exe" -type f 2>/dev/null | head -1)
+        
+        if [ -n "$WIN_EXE" ]; then
+            # Copier l'exe standalone
+            cp "$WIN_EXE" "$DOWNLOADS_DIR/PathFinder-Windows.exe"
+            SIZE=$(du -h "$DOWNLOADS_DIR/PathFinder-Windows.exe" | cut -f1)
+            echo -e "${GREEN}✅ EXE Windows créé: $SIZE${NC}"
+            echo "   → $DOWNLOADS_DIR/PathFinder-Windows.exe"
+            echo ""
+            echo -e "${YELLOW}⚠️  Note: EXE standalone (non-packagé MSIX)${NC}"
+            echo "   Pour un package MSIX complet, compiler sur Windows"
+            echo ""
+        else
+            echo -e "${RED}❌ Aucun exécutable Windows trouvé${NC}"
+            return 1
+        fi
+        
+    else
+        # Sur Windows natif
+        echo "📦 Compilation MSIX pour Windows 10/11..."
+        
+        # Build package MSIX complet
+        dotnet publish -f net8.0-windows10.0.19041.0 -c Release \
+            -p:WindowsPackageType=Msix \
+            -p:AppxBundle=Always \
+            -p:GenerateAppxPackageOnBuild=true \
+            -p:RuntimeIdentifier=win10-x64 \
+            -p:WindowsAppSDKSelfContained=true
+        
+        # Trouver le package MSIX
+        MSIX_FILE=$(find bin/Release/net8.0-windows10.0.19041.0/win10-x64 -name "*.msix" -type f | head -1)
+        
+        if [ -z "$MSIX_FILE" ]; then
+            # Essayer .appxbundle
+            MSIX_FILE=$(find bin/Release/net8.0-windows10.0.19041.0 -name "*.msixbundle" -type f | head -1)
+        fi
+        
+        if [ -n "$MSIX_FILE" ]; then
+            cp "$MSIX_FILE" "$DOWNLOADS_DIR/PathFinder-Windows.msix"
+            SIZE=$(du -h "$DOWNLOADS_DIR/PathFinder-Windows.msix" | cut -f1)
+            echo -e "${GREEN}✅ Package Windows créé: $SIZE${NC}"
+            echo "   → $DOWNLOADS_DIR/PathFinder-Windows.msix"
+            echo ""
+            echo "Installation sur Windows 10/11:"
+            echo "  1. Double-cliquer PathFinder-Windows.msix"
+            echo "  2. Ou: Add-AppxPackage PathFinder-Windows.msix"
+            echo ""
+        else
+            echo -e "${RED}❌ Aucun package MSIX trouvé${NC}"
+            return 1
+        fi
+    fi
 }
 
 # Parser les arguments
