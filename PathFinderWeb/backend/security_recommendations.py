@@ -1633,11 +1633,37 @@ def generate_scan_report(scan_data):
     """
     hosts = scan_data.get('hosts', [])
     
-    # Compter les hôtes par niveau de risque (case-insensitive)
-    critical_count = sum(1 for h in hosts if (h.get('risk_level') or '').lower() == 'critical')
-    high_count = sum(1 for h in hosts if (h.get('risk_level') or '').lower() == 'high')
-    medium_count = sum(1 for h in hosts if (h.get('risk_level') or '').lower() == 'medium')
-    low_count = sum(1 for h in hosts if (h.get('risk_level') or '').lower() == 'low')
+    # Compter les hôtes par niveau de risque (gérer français et anglais)
+    def normalize_risk(risk_str):
+        """Normalise le risk_level en anglais minuscules."""
+        risk = (risk_str or '').upper()
+        # Mapping français → anglais
+        mapping = {
+            'CRITIQUE': 'critical',
+            'CRITICAL': 'critical',
+            'ÉLEVÉ': 'high',
+            'ELEVE': 'high',
+            'HIGH': 'high',
+            'MOYEN': 'medium',
+            'MEDIUM': 'medium',
+            'FAIBLE': 'low',
+            'LOW': 'low',
+            'INFO': 'low'
+        }
+        return mapping.get(risk, 'low')
+    
+    # Debug: afficher les risk_level reçus
+    print(f"\n[SCAN REPORT DEBUG] Analyse de {len(hosts)} hôtes")
+    if hosts:
+        for i, h in enumerate(hosts[:5]):  # Premiers 5 hôtes
+            print(f"  Hôte {i+1}: IP={h.get('ip_address')}, risk_level='{h.get('risk_level')}', normalized='{normalize_risk(h.get('risk_level'))}'")
+    
+    critical_count = sum(1 for h in hosts if normalize_risk(h.get('risk_level')) == 'critical')
+    high_count = sum(1 for h in hosts if normalize_risk(h.get('risk_level')) == 'high')
+    medium_count = sum(1 for h in hosts if normalize_risk(h.get('risk_level')) == 'medium')
+    low_count = sum(1 for h in hosts if normalize_risk(h.get('risk_level')) == 'low')
+    
+    print(f"[SCAN REPORT DEBUG] Comptage: critical={critical_count}, high={high_count}, medium={medium_count}, low={low_count}\n")
     
     report = {
         "executive_summary": {

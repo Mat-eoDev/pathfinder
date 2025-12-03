@@ -772,6 +772,9 @@ function filterByRisk(risk) {
 function displaySecurityRecommendations(securityReport) {
     if (!securityReport) return;
     
+    console.log('[DEBUG] Security Report reçu:', securityReport);
+    console.log('[DEBUG] Executive Summary:', securityReport.executive_summary);
+    
     const recsContainer = document.getElementById('security-recommendations');
     const summary = securityReport.executive_summary;
     
