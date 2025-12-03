@@ -365,7 +365,8 @@ function renderToolsTab() {
                     <div style="margin-top: 10px;">
                         <label style="font-size: 13px; color: var(--text-muted); display: flex; align-items: center; gap: 8px;">
                             <span>Max tentatives:</span>
-                            <input type="number" id="hash-max-attempts" value="100000" min="1000" max="14000000" step="10000" class="admin-input" style="width: 120px;" />
+                            <input type="number" id="hash-max-attempts" value="14344391" min="1000" max="14344391" step="100000" class="admin-input" style="width: 140px;" />
+                            <span style="font-size: 11px;">(14.3M = complet)</span>
                         </label>
                     </div>
                     <button onclick="crackHash()" class="attack-btn warning" style="margin-top: 10px;">🔨 Cracker</button>

@@ -1468,7 +1468,7 @@ def pentest_hash_crack(current_user_id):
     hash_value = data.get('hash')
     hash_type = data.get('hash_type', 'md5')
     wordlist_type = data.get('wordlist_type', 'rockyou')
-    max_attempts = data.get('max_attempts', 100000)
+    max_attempts = data.get('max_attempts', 14344391)  # Scan complet rockyou.txt par défaut
     
     if not hash_value:
         return jsonify({'message': 'Hash requis'}), 400
