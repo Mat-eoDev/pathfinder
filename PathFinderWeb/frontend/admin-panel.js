@@ -464,14 +464,17 @@ async function launchPortScan() {
         
         if (response.ok) {
             displayPortScanResults(data, resultDiv);
-            addPentestLog(`Port scan terminé: ${data.open_ports?.length || 0} ports ouverts`, 'success');
+            addPentestLog(`Port scan terminé: ${data.open_ports?.length || 0} ports ouverts sur ${data.total_ports_scanned} scannés`, 'success');
+            notify.success(`✅ ${data.open_ports?.length || 0} ports ouverts trouvés`);
         } else {
             resultDiv.innerHTML = `<div class="error">❌ ${data.message}</div>`;
             addPentestLog(`Erreur port scan: ${data.message}`, 'error');
+            notify.error(data.message);
         }
     } catch (error) {
         resultDiv.innerHTML = `<div class="error">❌ Erreur: ${error.message}</div>`;
         addPentestLog(`Erreur port scan: ${error.message}`, 'error');
+        notify.error('Erreur connexion API');
     }
 }
 
@@ -509,20 +512,51 @@ async function launchBruteforce() {
         const data = await response.json();
         
         if (response.ok) {
-            resultDiv.innerHTML = `
-                <div class="${data.success ? 'success' : 'info'}">
-                    ${data.success ? '✅ Mot de passe trouvé: ' + data.password : '❌ Aucun mot de passe trouvé'}
-                    <div style="margin-top: 10px; font-size: 13px; color: var(--text-muted);">
-                        Tentatives: ${data.attempts} | Temps: ${data.duration}
+            if (data.success) {
+                resultDiv.innerHTML = `
+                    <div class="error" style="padding: 20px;">
+                        <div style="font-size: 20px; margin-bottom: 15px;">🚨 VULNÉRABLE - Mot de passe trouvé !</div>
+                        <div style="background: rgba(0,0,0,0.3); padding: 15px; border-radius: 8px; margin: 15px 0;">
+                            <div style="font-family: monospace; font-size: 16px; color: #10B981;">
+                                Username: <strong>${data.username}</strong><br>
+                                Password: <strong>${data.password}</strong>
+                                ${data.access_level ? `<br>Access: <strong>${data.access_level}</strong>` : ''}
+                            </div>
+                        </div>
+                        <div style="font-size: 13px; color: var(--text-muted); margin-top: 10px;">
+                            ⏱️ Temps: ${data.duration} | 🔄 Tentatives: ${data.attempts} | 📡 Méthode: ${data.method}
+                        </div>
+                        <div style="margin-top: 15px; padding: 12px; background: rgba(239, 68, 68, 0.2); border-radius: 6px;">
+                            <strong>⚠️ Actions recommandées:</strong><br>
+                            • Changer ce mot de passe IMMÉDIATEMENT<br>
+                            • Désactiver authentification par mot de passe (clés SSH)<br>
+                            • Installer fail2ban<br>
+                            • Auditer logs pour tentatives suspectes
+                        </div>
                     </div>
-                </div>
-            `;
-            addPentestLog(`Bruteforce terminé: ${data.attempts} tentatives`, data.success ? 'success' : 'info');
+                `;
+                notify.error(`🚨 MOT DE PASSE TROUVÉ: ${data.password}`);
+                addPentestLog(`⚠️ VULNÉRABLE: Password = ${data.password}`, 'error');
+            } else {
+                resultDiv.innerHTML = `
+                    <div class="success">
+                        ✅ Aucun mot de passe courant trouvé - SSH semble sécurisé
+                        <div style="margin-top: 10px; font-size: 13px; color: var(--text-muted);">
+                            ⏱️ Temps: ${data.duration} | 🔄 Tentatives: ${data.attempts} | 📡 Méthode: ${data.method}
+                        </div>
+                        ${data.info ? `<div style="margin-top: 10px; padding: 10px; background: rgba(6, 182, 212, 0.1); border-radius: 6px; font-size: 13px;">${data.info}</div>` : ''}
+                    </div>
+                `;
+                notify.success('✅ SSH sécurisé contre mots de passe courants');
+                addPentestLog(`Bruteforce: ${data.attempts} tentatives - Aucun succès`, 'success');
+            }
         } else {
             resultDiv.innerHTML = `<div class="error">❌ ${data.message}</div>`;
+            notify.error(data.message);
         }
     } catch (error) {
         resultDiv.innerHTML = `<div class="error">❌ Erreur: ${error.message}</div>`;
+        notify.error('Erreur connexion API');
     }
 }
 
@@ -557,26 +591,62 @@ async function launchDirBusting() {
         
         if (response.ok && data.results) {
             const found = data.results.filter(r => r.found);
+            const critical = found.filter(r => r.path.includes('.git') || r.path.includes('.env'));
+            const protected = found.filter(r => r.status === 403 || r.status === 401);
+            const accessible = found.filter(r => r.status === 200);
+            
             resultDiv.innerHTML = `
-                <div class="success">
-                    ✅ Scan terminé: ${found.length} répertoires/fichiers trouvés
+                <div class="${critical.length > 0 ? 'error' : 'success'}">
+                    ${critical.length > 0 ? '🚨 FICHIERS CRITIQUES EXPOSÉS !' : '✅ Scan terminé'}
+                    <div style="margin-top: 10px; font-size: 14px;">
+                        📁 Total trouvés: ${found.length} | 
+                        ✅ Accessibles: ${accessible.length} | 
+                        🔒 Protégés: ${protected.length} | 
+                        🚨 Critiques: ${critical.length}
+                    </div>
+                    ${data.scan_time ? `<div style="font-size: 12px; color: var(--text-muted); margin-top: 5px;">⏱️ ${data.scan_time}</div>` : ''}
                 </div>
-                <div class="results-list" style="margin-top: 15px;">
-                    ${found.map(r => `
-                        <div class="result-item">
-                            <span class="status-badge status-${r.status}">${r.status}</span>
-                            <code>${r.path}</code>
-                            <span class="size-badge">${r.size || 'N/A'}</span>
+                <div class="results-list" style="margin-top: 15px; max-height: 400px; overflow-y: auto;">
+                    ${found.map(r => {
+                        const isCritical = r.path.includes('.git') || r.path.includes('.env') || r.path.includes('config') || r.path.includes('backup');
+                        const statusColor = r.status === 200 ? 'var(--success)' : r.status === 403 || r.status === 401 ? 'var(--warning)' : 'var(--info)';
+                        
+                        return `
+                        <div class="result-item" style="border-left: 3px solid ${isCritical ? 'var(--danger)' : statusColor};">
+                            <span class="status-badge status-${r.status}" style="background: ${statusColor}; color: white; padding: 4px 8px; border-radius: 4px; font-size: 11px;">${r.status}</span>
+                            <code style="flex: 1; color: ${isCritical ? 'var(--danger)' : 'var(--text)'}; font-weight: ${isCritical ? '600' : '400'};">
+                                ${r.path}${isCritical ? ' ⚠️' : ''}
+                            </code>
+                            <span class="size-badge" style="color: var(--text-muted); font-size: 12px;">${r.size || 'N/A'}</span>
+                            ${r.url ? `<a href="${r.url}" target="_blank" style="color: var(--primary); text-decoration: none; font-size: 12px;">🔗</a>` : ''}
                         </div>
-                    `).join('')}
+                    `}).join('')}
                 </div>
+                ${critical.length > 0 ? `
+                    <div style="margin-top: 15px; padding: 15px; background: rgba(239, 68, 68, 0.15); border-radius: 8px; border-left: 4px solid var(--danger);">
+                        <strong style="color: var(--danger);">⚠️ ALERTE SÉCURITÉ:</strong><br>
+                        <div style="margin-top: 8px; font-size: 13px; color: var(--text-muted);">
+                            ${critical.length} fichier(s) critique(s) exposé(s) (.git, .env, config, backup)<br>
+                            → Risque de fuite de credentials, code source, secrets<br>
+                            → Bloquer immédiatement via .htaccess ou Nginx
+                        </div>
+                    </div>
+                ` : ''}
             `;
-            addPentestLog(`Directory scan: ${found.length} trouvés`, 'success');
+            addPentestLog(`Directory busting: ${found.length} trouvés (${critical.length} critiques)`, critical.length > 0 ? 'error' : 'success');
+            
+            if (critical.length > 0) {
+                notify.error(`🚨 ${critical.length} fichier(s) critique(s) exposé(s) !`);
+            } else {
+                notify.success(`✅ ${found.length} chemins trouvés`);
+            }
         } else {
             resultDiv.innerHTML = `<div class="error">❌ ${data.message || 'Erreur'}</div>`;
+            notify.error(data.message || 'Erreur scan');
         }
     } catch (error) {
         resultDiv.innerHTML = `<div class="error">❌ Erreur: ${error.message}</div>`;
+        notify.error('Erreur connexion API');
     }
 }
 
@@ -606,33 +676,90 @@ async function launchCVEScan() {
         const data = await response.json();
         
         if (response.ok && data.vulnerabilities) {
-            const critical = data.vulnerabilities.filter(v => v.severity === 'critical').length;
-            const high = data.vulnerabilities.filter(v => v.severity === 'high').length;
+            const critical = data.vulnerabilities.filter(v => v.severity === 'critical');
+            const high = data.vulnerabilities.filter(v => v.severity === 'high');
+            const medium = data.vulnerabilities.filter(v => v.severity === 'medium');
             
             resultDiv.innerHTML = `
-                <div class="success">
-                    ✅ Scan terminé: ${data.vulnerabilities.length} CVEs détectées
-                    <div style="margin-top: 10px;">
-                        🔴 Critiques: ${critical} | 🟠 Hautes: ${high}
+                <div class="${critical.length > 0 ? 'error' : 'success'}">
+                    ${critical.length > 0 ? '🚨 VULNÉRABILITÉS CRITIQUES DÉTECTÉES' : '✅ Scan terminé'}
+                    <div style="margin-top: 10px; font-size: 14px;">
+                        Total: ${data.vulnerabilities.length} CVEs | 
+                        🔴 Critiques: ${critical.length} | 
+                        🟠 Hautes: ${high.length} | 
+                        🟡 Moyennes: ${medium.length}
                     </div>
+                    ${data.scan_time ? `<div style="font-size: 12px; color: var(--text-muted); margin-top: 5px;">⏱️ ${data.scan_time} | 📡 ${data.services_scanned || 0} services scannés</div>` : ''}
                 </div>
-                <div class="cve-list" style="margin-top: 15px;">
-                    ${data.vulnerabilities.slice(0, 10).map(v => `
-                        <div class="cve-item">
-                            <span class="severity ${v.severity}">${v.cve_id}</span>
-                            <span>${v.description}</span>
-                            <a href="https://nvd.nist.gov/vuln/detail/${v.cve_id}" target="_blank">📚 NVD</a>
+                <div class="cve-list" style="margin-top: 15px; max-height: 500px; overflow-y: auto;">
+                    ${data.vulnerabilities.map(v => {
+                        const severityColor = {
+                            'critical': 'var(--danger)',
+                            'high': 'var(--warning)',
+                            'medium': 'var(--info)',
+                            'low': 'var(--success)'
+                        }[v.severity] || 'var(--text-muted)';
+                        
+                        return `
+                        <div class="cve-item" style="background: var(--bg); padding: 15px; border-radius: 8px; margin-bottom: 10px; border-left: 4px solid ${severityColor};">
+                            <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 8px;">
+                                <div>
+                                    <span class="severity ${v.severity}" style="background: ${severityColor}; color: white; padding: 4px 10px; border-radius: 6px; font-size: 12px; font-weight: 600;">
+                                        ${v.cve_id}
+                                    </span>
+                                    ${v.name ? `<span style="color: var(--text); font-weight: 600; margin-left: 10px; font-size: 14px;">${v.name}</span>` : ''}
+                                </div>
+                                <div style="display: flex; gap: 8px;">
+                                    ${v.cvss ? `<span style="color: var(--text-muted); font-size: 12px;">CVSS: ${v.cvss}</span>` : ''}
+                                    ${v.exploit_available ? `<span style="color: var(--danger); font-size: 12px;">💣 Exploit dispo</span>` : ''}
+                                </div>
+                            </div>
+                            <div style="color: var(--text); font-size: 14px; margin-bottom: 8px;">
+                                ${v.description}
+                            </div>
+                            <div style="display: flex; gap: 15px; font-size: 13px; color: var(--text-muted); margin-bottom: 8px;">
+                                ${v.service ? `<span>🔌 Service: <strong>${v.service}</strong></span>` : ''}
+                                ${v.port ? `<span>📍 Port: <strong>${v.port}</strong></span>` : ''}
+                                ${v.impact ? `<span>💥 Impact: <strong>${v.impact}</strong></span>` : ''}
+                            </div>
+                            ${v.mitigation ? `
+                                <div style="margin-top: 10px; padding: 10px; background: rgba(16, 185, 129, 0.1); border-radius: 6px; font-size: 13px;">
+                                    <strong style="color: var(--success);">✅ Mitigation:</strong> ${v.mitigation}
+                                </div>
+                            ` : ''}
+                            <div style="margin-top: 10px; display: flex; gap: 10px;">
+                                <a href="https://nvd.nist.gov/vuln/detail/${v.cve_id}" target="_blank" style="color: var(--primary); text-decoration: none; font-size: 12px;">📚 NVD</a>
+                                <a href="https://www.cvedetails.com/cve/${v.cve_id}/" target="_blank" style="color: var(--primary); text-decoration: none; font-size: 12px;">🔍 Details</a>
+                                ${v.exploit_available ? `<a href="https://www.exploit-db.com/search?cve=${v.cve_id}" target="_blank" style="color: var(--danger); text-decoration: none; font-size: 12px;">💣 Exploits</a>` : ''}
+                            </div>
                         </div>
-                    `).join('')}
-                    ${data.vulnerabilities.length > 10 ? `<div style="color: var(--text-muted); margin-top: 10px;">... et ${data.vulnerabilities.length - 10} autres</div>` : ''}
+                    `}).join('')}
                 </div>
+                ${critical.length > 0 ? `
+                    <div style="margin-top: 15px; padding: 15px; background: rgba(239, 68, 68, 0.15); border-radius: 8px; border-left: 4px solid var(--danger);">
+                        <strong style="color: var(--danger);">🚨 ACTION URGENTE REQUISE:</strong><br>
+                        <div style="margin-top: 8px; font-size: 13px; color: var(--text-muted);">
+                            ${critical.length} vulnérabilité(s) CRITIQUE(s) avec exploits disponibles<br>
+                            → Patcher immédiatement ou isoler du réseau<br>
+                            → Consulter les mitigations ci-dessus
+                        </div>
+                    </div>
+                ` : ''}
             `;
-            addPentestLog(`CVE scan: ${data.vulnerabilities.length} CVEs trouvées`, 'success');
+            addPentestLog(`CVE scan: ${data.vulnerabilities.length} CVEs (${critical.length} critiques)`, critical.length > 0 ? 'error' : 'success');
+            
+            if (critical.length > 0) {
+                notify.error(`🚨 ${critical.length} CVE(s) CRITIQUE(s) détectée(s) !`);
+            } else {
+                notify.success(`✅ ${data.vulnerabilities.length} CVE(s) détectée(s)`);
+            }
         } else {
             resultDiv.innerHTML = `<div class="error">❌ ${data.message || 'Erreur'}</div>`;
+            notify.error(data.message || 'Erreur scan');
         }
     } catch (error) {
         resultDiv.innerHTML = `<div class="error">❌ Erreur: ${error.message}</div>`;
+        notify.error('Erreur connexion API');
     }
 }
 
@@ -726,20 +853,62 @@ async function launchExploit() {
         const data = await response.json();
         
         if (response.ok) {
+            const confColor = {
+                'low': 'var(--info)',
+                'medium': 'var(--warning)',
+                'high': 'var(--danger)',
+                'confirmed': 'var(--danger)'
+            }[data.confidence] || 'var(--text-muted)';
+            
             resultDiv.innerHTML = `
-                <div class="${data.vulnerable ? 'error' : 'success'}">
-                    ${data.vulnerable ? '🚨 VULNÉRABLE' : '✅ Non vulnérable'}
-                    <div style="margin-top: 10px; font-size: 13px;">
+                <div class="${data.vulnerable ? 'error' : 'success'}" style="padding: 20px;">
+                    <div style="font-size: 20px; margin-bottom: 10px;">
+                        ${data.vulnerable ? '🚨 SYSTÈME VULNÉRABLE' : '✅ Système Sécurisé'}
+                    </div>
+                    <div style="font-size: 14px; color: var(--text-muted); margin-bottom: 15px;">
                         ${data.info}
                     </div>
+                    ${data.confidence ? `
+                        <div style="margin-bottom: 15px;">
+                            <span style="color: var(--text-muted); font-size: 13px;">Confiance: </span>
+                            <span style="color: ${confColor}; font-weight: 600; font-size: 13px;">${data.confidence.toUpperCase()}</span>
+                        </div>
+                    ` : ''}
+                    ${data.details && Object.keys(data.details).length > 0 ? `
+                        <div style="background: rgba(0,0,0,0.3); padding: 15px; border-radius: 8px; margin: 15px 0;">
+                            <strong>📋 Détails Techniques:</strong>
+                            <div style="margin-top: 10px; font-family: monospace; font-size: 13px; color: var(--text-muted);">
+                                ${Object.entries(data.details).map(([key, value]) => {
+                                    if (typeof value === 'object') return '';
+                                    return `<div><strong>${key}:</strong> ${value}</div>`;
+                                }).join('')}
+                            </div>
+                        </div>
+                    ` : ''}
+                    ${data.recommendations && data.recommendations.length > 0 ? `
+                        <div style="margin-top: 15px; padding: 15px; background: rgba(16, 185, 129, 0.1); border-radius: 8px; border-left: 4px solid var(--success);">
+                            <strong style="color: var(--success);">✅ Recommandations:</strong>
+                            <ul style="margin: 10px 0 0 20px; font-size: 13px; color: var(--text-muted); line-height: 1.8;">
+                                ${data.recommendations.map(rec => `<li>${rec}</li>`).join('')}
+                            </ul>
+                        </div>
+                    ` : ''}
                 </div>
             `;
-            addPentestLog(`Exploit test: ${data.vulnerable ? 'VULNÉRABLE' : 'Sécurisé'}`, data.vulnerable ? 'error' : 'success');
+            addPentestLog(`Exploit ${data.exploit}: ${data.vulnerable ? 'VULNÉRABLE (' + data.confidence + ')' : 'Sécurisé'}`, data.vulnerable ? 'error' : 'success');
+            
+            if (data.vulnerable) {
+                notify.error(`🚨 Vulnérable à ${data.exploit.toUpperCase()}`);
+            } else {
+                notify.success(`✅ Non vulnérable à ${data.exploit.toUpperCase()}`);
+            }
         } else {
             resultDiv.innerHTML = `<div class="error">❌ ${data.message}</div>`;
+            notify.error(data.message);
         }
     } catch (error) {
         resultDiv.innerHTML = `<div class="error">❌ Erreur: ${error.message}</div>`;
+        notify.error('Erreur connexion API');
     }
 }
 
