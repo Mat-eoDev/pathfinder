@@ -47,7 +47,7 @@ cd backend
 
 if ! pip3 show flask &> /dev/null; then
     echo "⚠️  Dépendances manquantes. Installation..."
-    pip3 install -r requirements.txt
+    pip3 install -r c
 fi
 
 echo "✅ Dépendances Python OK"

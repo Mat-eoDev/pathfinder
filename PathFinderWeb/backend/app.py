@@ -14,7 +14,7 @@ import datetime
 from functools import wraps
 import json
 import os
-from security_recommendations import generate_host_recommendations, generate_scan_report, get_port_recommendations
+from security_recommendations import generate_host_recommendations, generate_scan_report, get_port_recommendations, generate_remediation_script
 
 app = Flask(__name__)
 CORS(app)  # Permettre les requêtes cross-origin
@@ -1076,6 +1076,138 @@ def refresh_token(current_user_id):
         conn.close()
 
 # ========== ROUTES DE TÉLÉCHARGEMENT ==========
+
+@app.route('/api/scans/<int:scan_id>/remediation-script', methods=['GET'])
+@token_required
+def download_remediation_script(current_user_id, scan_id):
+    """Génère et télécharge un script bash de remédiation automatique."""
+    from flask import Response
+    
+    conn = get_db_connection()
+    if not conn:
+        return jsonify({'message': 'Erreur de connexion'}), 500
+    
+    cursor = conn.cursor(dictionary=True)
+    
+    try:
+        # Vérifier que le scan appartient à l'utilisateur
+        cursor.execute(
+            "SELECT * FROM scans WHERE id = %s AND user_id = %s",
+            (scan_id, current_user_id)
+        )
+        scan = cursor.fetchone()
+        
+        if not scan:
+            return jsonify({'message': 'Scan non trouvé'}), 404
+        
+        # Récupérer les hôtes
+        cursor.execute(
+            "SELECT * FROM scan_hosts WHERE scan_id = %s ORDER BY priority_score DESC",
+            (scan_id,)
+        )
+        hosts = cursor.fetchall()
+        
+        # Parser les open_ports
+        for host in hosts:
+            host['open_ports'] = json.loads(host['open_ports']) if host['open_ports'] else []
+        
+        # Générer les recommandations
+        scan_data = {'hosts': hosts}
+        security_report = generate_scan_report(scan_data)
+        
+        # Générer le script pour chaque hôte
+        script_content = f"""#!/bin/bash
+# PathFinder - Script de Remédiation Automatique
+# Généré le: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+# Scan ID: {scan_id}
+# Réseau: {scan['network_range']}
+#
+# ⚠️  ATTENTION: Vérifier et tester avant exécution en production
+# 📋 Ce script doit être exécuté avec sudo sur chaque hôte concerné
+
+set -e  # Exit on error
+set -u  # Exit on undefined variable
+
+echo "════════════════════════════════════════════════"
+echo "🛡️  PathFinder - Remédiation de Sécurité"
+echo "════════════════════════════════════════════════"
+echo ""
+echo "Scan ID: {scan_id}"
+echo "Date: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+echo "Hôtes à corriger: {len(hosts)}"
+echo "Score actuel: {security_report['executive_summary']['score']}/100"
+echo ""
+echo "════════════════════════════════════════════════"
+echo ""
+
+# Vérifier que le script tourne en sudo
+if [ "$EUID" -ne 0 ]; then 
+    echo "❌ Ce script doit être exécuté avec sudo"
+    exit 1
+fi
+
+"""
+        
+        # Ajouter les recommandations pour chaque hôte
+        for host_rec in security_report.get('hosts_recommendations', []):
+            host_sum = host_rec.get('host_summary', {})
+            script_content += f"""
+echo "──────────────────────────────────────────────"
+echo "🖥️  Hôte: {host_sum.get('ip', 'N/A')}"
+echo "    Hostname: {host_sum.get('hostname', 'N/A')}"
+echo "    OS: {host_sum.get('os', 'N/A')}"
+echo "    Risque: {host_sum.get('risk_level', 'N/A').upper()}"
+echo "──────────────────────────────────────────────"
+echo ""
+
+"""
+            # Quick Wins pour cet hôte
+            for qw in host_rec.get('quick_wins', []):
+                script_content += f"# {qw.get('action', 'Action')}\n"
+                script_content += f"echo '⚡ {qw.get('action', 'Action')}...'\n"
+                for cmd in qw.get('commands', []):
+                    if cmd and not cmd.startswith('#') and cmd.strip():
+                        script_content += f"{cmd}\n"
+                script_content += "\n"
+            
+            # Commandes par port
+            for port_analysis in host_rec.get('ports_analysis', []):
+                if port_analysis.get('risk') in ['critical', 'high']:
+                    script_content += f"# Port {port_analysis.get('port')} - {port_analysis.get('service')}\n"
+                    script_content += f"echo 'Sécurisation port {port_analysis.get('port')} ({port_analysis.get('service')})...'\n"
+                    for cmd in port_analysis.get('commands', []):
+                        if cmd and not cmd.startswith('#') and cmd.strip():
+                            script_content += f"{cmd}\n"
+                    script_content += "\n"
+        
+        script_content += """
+echo ""
+echo "════════════════════════════════════════════════"
+echo "✅ Remédiation terminée !"
+echo "════════════════════════════════════════════════"
+echo ""
+echo "⚠️  Actions suivantes recommandées:"
+echo "  1. Redémarrer les services modifiés"
+echo "  2. Vérifier les logs pour erreurs"
+echo "  3. Lancer un nouveau scan PathFinder"
+echo "  4. Comparer le nouveau score de sécurité"
+echo ""
+"""
+        
+        # Retourner en tant que fichier téléchargeable
+        return Response(
+            script_content,
+            mimetype='text/x-shellscript',
+            headers={
+                'Content-Disposition': f'attachment; filename=pathfinder-remediation-scan-{scan_id}.sh'
+            }
+        )
+        
+    except Error as e:
+        return jsonify({'message': f'Erreur: {str(e)}'}), 500
+    finally:
+        cursor.close()
+        conn.close()
 
 @app.route('/api/download/<platform>', methods=['GET'])
 def download_app(platform):

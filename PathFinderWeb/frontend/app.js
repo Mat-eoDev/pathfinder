@@ -548,6 +548,9 @@ function displayScansList(scans, showAdmin) {
 
 async function viewScanDetails(scanId) {
     try {
+        // Stocker le scan ID pour téléchargement script
+        window.currentScanId = scanId;
+        
         const response = await fetch(`${API_URL}/scans/${scanId}`, {
             headers: { 'Authorization': `Bearer ${authToken}` }
         });
@@ -571,66 +574,175 @@ async function viewScanDetails(scanId) {
 function displayScanDetails(scan) {
     const detailsEl = document.getElementById('scan-details');
     
-    let hostsHtml = '';
-    
-    if (scan.hosts && scan.hosts.length > 0) {
-        hostsHtml = scan.hosts.map(host => {
-            const riskClass = `risk-${(host.risk_level || 'INFO').toLowerCase()}`;
-            const openPorts = host.open_ports || [];
-            
-            return `
-                <div class="host-card ${riskClass}">
-                    <div class="host-header">
-                        <div>
-                            <div class="host-ip">💻 ${host.ip_address}</div>
-                            <div class="host-os">${host.hostname || 'Nom inconnu'} • ${host.os_detected || 'OS inconnu'}</div>
-                        </div>
-                        <div style="text-align: right;">
-                            <div style="font-size: 12px; color: var(--text-muted);">Score: ${host.priority_score}/100</div>
-                            <div style="font-size: 14px; font-weight: 600; color: var(--danger);">${host.risk_level || 'INFO'}</div>
-                        </div>
-                    </div>
-                    <div class="host-ports">
-                        ${openPorts.map(port => `<span class="port-badge">Port ${port}</span>`).join('')}
-                        ${openPorts.length === 0 ? '<span style="color: var(--text-muted);">Aucun port ouvert</span>' : ''}
-                    </div>
-                </div>
-            `;
-        }).join('');
-    } else {
-        hostsHtml = '<div class="loading">Aucun hôte détecté</div>';
-    }
+    // Stocker les hôtes pour le filtrage
+    window.currentScanHosts = scan.hosts || [];
     
     detailsEl.innerHTML = `
         <div style="margin-bottom: 30px;">
             <h3 style="color: var(--primary); margin-bottom: 15px;">📊 Résumé du Scan</h3>
-            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin-bottom: 20px;">
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 15px; margin-bottom: 20px;">
                 <div style="background: var(--dark); padding: 15px; border-radius: 10px;">
-                    <div style="font-size: 24px; font-weight: 600;">${scan.total_hosts}</div>
-                    <div style="color: var(--text-muted); font-size: 14px;">Total hôtes</div>
+                    <div style="font-size: 24px; font-weight: 600;">${scan.total_hosts || 0}</div>
+                    <div style="color: var(--text-muted); font-size: 14px;">Total hôtes scannés</div>
                 </div>
                 <div style="background: var(--dark); padding: 15px; border-radius: 10px;">
-                    <div style="font-size: 24px; font-weight: 600; color: var(--success);">${scan.alive_hosts}</div>
+                    <div style="font-size: 24px; font-weight: 600; color: var(--success);">${scan.alive_hosts || 0}</div>
                     <div style="color: var(--text-muted); font-size: 14px;">Hôtes actifs</div>
                 </div>
                 <div style="background: var(--dark); padding: 15px; border-radius: 10px;">
-                    <div style="font-size: 24px; font-weight: 600; color: var(--danger);">${scan.critical_hosts}</div>
-                    <div style="color: var(--text-muted); font-size: 14px;">Critiques</div>
+                    <div style="font-size: 24px; font-weight: 600; color: var(--danger);">${scan.critical_hosts || 0}</div>
+                    <div style="color: var(--text-muted); font-size: 14px;">Hôtes critiques</div>
                 </div>
                 <div style="background: var(--dark); padding: 15px; border-radius: 10px;">
-                    <div style="font-size: 24px; font-weight: 600; color: var(--warning);">${scan.high_risk_hosts}</div>
+                    <div style="font-size: 24px; font-weight: 600; color: var(--warning);">${scan.high_risk_hosts || 0}</div>
                     <div style="color: var(--text-muted); font-size: 14px;">Risques élevés</div>
+                </div>
+                <div style="background: var(--dark); padding: 15px; border-radius: 10px;">
+                    <div style="font-size: 24px; font-weight: 600; color: var(--info);">${(scan.hosts || []).reduce((sum, h) => sum + (h.open_ports || []).length, 0)}</div>
+                    <div style="color: var(--text-muted); font-size: 14px;">Ports ouverts</div>
+                </div>
+                <div style="background: var(--dark); padding: 15px; border-radius: 10px;">
+                    <div style="font-size: 18px; font-weight: 600; color: var(--text-muted);">${scan.network_range || 'N/A'}</div>
+                    <div style="color: var(--text-muted); font-size: 14px;">Plage réseau</div>
                 </div>
             </div>
         </div>
         
-        <h3 style="color: var(--primary); margin-bottom: 20px;">🖥️ Hôtes Détectés</h3>
-        ${hostsHtml}
+        <!-- Barre de recherche -->
+        <div style="margin-bottom: 20px;">
+            <div style="position: relative;">
+                <input 
+                    type="text" 
+                    id="host-search" 
+                    placeholder="🔍 Rechercher par IP, hostname, OS, port..." 
+                    style="width: 100%; padding: 12px 45px 12px 15px; background: var(--dark); border: 1px solid var(--border); border-radius: 8px; color: var(--text); font-size: 14px;"
+                    oninput="filterHosts(this.value)"
+                />
+                <div id="search-count" style="position: absolute; right: 15px; top: 50%; transform: translateY(-50%); color: var(--text-muted); font-size: 13px;"></div>
+            </div>
+        </div>
+        
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+            <h3 style="color: var(--primary); margin: 0;">🖥️ Hôtes Détectés</h3>
+            <div style="display: flex; gap: 10px;">
+                <button onclick="filterByRisk('all')" class="filter-btn active" data-filter="all">Tous (${(scan.hosts || []).length})</button>
+                <button onclick="filterByRisk('critical')" class="filter-btn" data-filter="critical">🔴 Critiques (${scan.critical_hosts || 0})</button>
+                <button onclick="filterByRisk('high')" class="filter-btn" data-filter="high">🟠 Élevés (${scan.high_risk_hosts || 0})</button>
+            </div>
+        </div>
+        
+        <div id="hosts-container"></div>
         
         <div id="security-recommendations" style="margin-top: 30px;"></div>
     `;
     
+    // Afficher les hôtes initialement
+    renderHosts(window.currentScanHosts);
+    
     document.getElementById('scan-modal').style.display = 'flex';
+}
+
+function renderHosts(hosts, filterText = '', riskFilter = 'all') {
+    const container = document.getElementById('hosts-container');
+    const searchCount = document.getElementById('search-count');
+    
+    if (!hosts || hosts.length === 0) {
+        container.innerHTML = '<div class="loading">Aucun hôte détecté</div>';
+        if (searchCount) searchCount.textContent = '';
+        return;
+    }
+    
+    // Filtrage
+    let filteredHosts = hosts;
+    
+    // Filtre par risque
+    if (riskFilter !== 'all') {
+        filteredHosts = filteredHosts.filter(h => h.risk_level === riskFilter);
+    }
+    
+    // Filtre par texte
+    if (filterText) {
+        const search = filterText.toLowerCase();
+        filteredHosts = filteredHosts.filter(host => {
+            const ip = (host.ip_address || '').toLowerCase();
+            const hostname = (host.hostname || '').toLowerCase();
+            const os = (host.os_detected || '').toLowerCase();
+            const ports = (host.open_ports || []).map(p => String(p)).join(' ');
+            
+            return ip.includes(search) || hostname.includes(search) || 
+                   os.includes(search) || ports.includes(search);
+        });
+    }
+    
+    // Afficher compteur
+    if (searchCount) {
+        searchCount.textContent = `${filteredHosts.length} / ${hosts.length}`;
+    }
+    
+    // Rendu HTML
+    const hostsHtml = filteredHosts.map(host => {
+        const riskClass = `risk-${(host.risk_level || 'info').toLowerCase()}`;
+            const openPorts = host.open_ports || [];
+        const riskColors = {
+            'critical': 'var(--danger)',
+            'high': 'var(--warning)',
+            'medium': 'var(--info)',
+            'low': 'var(--success)',
+            'info': 'var(--text-muted)'
+        };
+        const riskColor = riskColors[host.risk_level] || 'var(--text-muted)';
+            
+            return `
+            <div class="host-card ${riskClass}" style="background: var(--dark); padding: 20px; border-radius: 12px; margin-bottom: 15px; border-left: 4px solid ${riskColor}; transition: all 0.3s ease;">
+                <div class="host-header" style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 15px;">
+                        <div>
+                        <div class="host-ip" style="font-size: 18px; font-weight: 600; color: var(--text); margin-bottom: 5px;">
+                            💻 ${host.ip_address || 'IP inconnue'}
+                        </div>
+                        <div class="host-os" style="font-size: 14px; color: var(--text-muted);">
+                            ${host.hostname || 'Nom inconnu'} • ${host.os_detected || 'OS inconnu'} ${host.ttl ? `• TTL: ${host.ttl}` : ''}
+                        </div>
+                        </div>
+                        <div style="text-align: right;">
+                        <div style="font-size: 24px; font-weight: 700; color: ${riskColor}; margin-bottom: 3px;">
+                            ${host.priority_score || 0}<span style="font-size: 14px; opacity: 0.7;">/100</span>
+                        </div>
+                        <div style="display: inline-block; padding: 4px 12px; background: ${riskColor}; color: white; border-radius: 6px; font-size: 12px; font-weight: 600;">
+                            ${(host.risk_level || 'INFO').toUpperCase()}
+                    </div>
+                    </div>
+                </div>
+                <div class="host-ports" style="display: flex; flex-wrap: wrap; gap: 8px;">
+                    ${openPorts.length > 0 ? 
+                        openPorts.map(port => `
+                            <span class="port-badge" style="display: inline-flex; align-items: center; gap: 5px; padding: 6px 12px; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; font-size: 13px; font-weight: 500;">
+                                <span style="color: var(--primary);">🔌</span>
+                                <span style="color: var(--text);">Port ${port}</span>
+                            </span>
+                        `).join('') 
+                        : '<span style="color: var(--text-muted); font-size: 14px;">✅ Aucun port ouvert</span>'
+                    }
+                    </div>
+                </div>
+            `;
+        }).join('');
+    
+    container.innerHTML = hostsHtml || '<div class="loading">Aucun résultat</div>';
+}
+
+function filterHosts(searchText) {
+    const riskFilter = document.querySelector('.filter-btn.active')?.dataset.filter || 'all';
+    renderHosts(window.currentScanHosts, searchText, riskFilter);
+}
+
+function filterByRisk(risk) {
+    // Mettre à jour les boutons actifs
+    document.querySelectorAll('.filter-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.filter === risk);
+    });
+    
+    const searchText = document.getElementById('host-search')?.value || '';
+    renderHosts(window.currentScanHosts, searchText, risk);
 }
 
 // ========== RECOMMANDATIONS DE SÉCURITÉ ==========
@@ -649,22 +761,53 @@ function displaySecurityRecommendations(securityReport) {
     let html = `
         <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 25px; border-radius: 15px; margin-bottom: 25px;">
             <h3 style="color: white; margin-bottom: 15px; display: flex; align-items: center; gap: 10px;">
-                <span>🛡️</span> Rapport de Sécurité
+                <span>🛡️</span> Rapport de Sécurité Professionnel
             </h3>
-            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 15px;">
+            <div style="display: flex; justify-content: flex-end; margin-bottom: 12px;">
+                <button onclick="downloadRemediationScript()" style="padding: 10px 20px; background: linear-gradient(135deg, #10B981 0%, #059669 100%); color: white; border: none; border-radius: 8px; cursor: pointer; font-size: 14px; font-weight: 600; display: flex; align-items: center; gap: 8px; box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3); transition: all 0.3s ease;" onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 6px 16px rgba(16, 185, 129, 0.4)'" onmouseout="this.style.transform=''; this.style.boxShadow='0 4px 12px rgba(16, 185, 129, 0.3)'">
+                    <span>⬇️</span> Télécharger Script de Remédiation
+                </button>
+                </div>
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; margin-bottom: 15px;">
                 <div style="background: rgba(255,255,255,0.1); backdrop-filter: blur(10px); padding: 15px; border-radius: 10px;">
-                    <div style="font-size: 32px; font-weight: 700; color: ${scoreColor};">${summary.score}/100</div>
-                    <div style="color: white; opacity: 0.9; font-size: 14px;">Score Sécurité</div>
+                    <div style="font-size: 36px; font-weight: 700; color: ${scoreColor};">${summary.score}<span style="font-size: 18px; opacity: 0.7;">/100</span></div>
+                    <div style="color: white; opacity: 0.9; font-size: 13px; margin-top: 5px;">Score Sécurité</div>
+                    <div style="color: white; opacity: 0.7; font-size: 12px; margin-top: 3px;">Grade: ${summary.grade || 'N/A'}</div>
                 </div>
                 <div style="background: rgba(255,255,255,0.1); backdrop-filter: blur(10px); padding: 15px; border-radius: 10px;">
-                    <div style="font-size: 32px; font-weight: 700; color: #EF4444;">${summary.critical_hosts}</div>
-                    <div style="color: white; opacity: 0.9; font-size: 14px;">Hôtes Critiques</div>
+                    <div style="font-size: 36px; font-weight: 700; color: #EF4444;">${summary.critical_hosts || 0}</div>
+                    <div style="color: white; opacity: 0.9; font-size: 13px; margin-top: 5px;">Hôtes Critiques</div>
                 </div>
                 <div style="background: rgba(255,255,255,0.1); backdrop-filter: blur(10px); padding: 15px; border-radius: 10px;">
-                    <div style="font-size: 32px; font-weight: 700; color: #F59E0B;">${summary.high_risk_hosts}</div>
-                    <div style="color: white; opacity: 0.9; font-size: 14px;">Risque Élevé</div>
+                    <div style="font-size: 36px; font-weight: 700; color: #F59E0B;">${summary.high_risk_hosts || 0}</div>
+                    <div style="color: white; opacity: 0.9; font-size: 13px; margin-top: 5px;">Risques Élevés</div>
                 </div>
+                <div style="background: rgba(255,255,255,0.1); backdrop-filter: blur(10px); padding: 15px; border-radius: 10px;">
+                    <div style="font-size: 36px; font-weight: 700; color: #06B6D4;">${summary.medium_risk_hosts || 0}</div>
+                    <div style="color: white; opacity: 0.9; font-size: 13px; margin-top: 5px;">Risques Moyens</div>
             </div>
+                <div style="background: rgba(255,255,255,0.1); backdrop-filter: blur(10px); padding: 15px; border-radius: 10px;">
+                    <div style="font-size: 20px; font-weight: 600; color: white; opacity: 0.9;">⏱️ ${summary.total_remediation_time || 'N/A'}</div>
+                    <div style="color: white; opacity: 0.9; font-size: 13px; margin-top: 5px;">Temps estimé</div>
+        </div>
+        </div>
+            ${securityReport.compliance_summary && securityReport.compliance_summary.frameworks_impacted && securityReport.compliance_summary.frameworks_impacted.length > 0 ? `
+                <div style="background: rgba(255,255,255,0.08); padding: 12px; border-radius: 8px; margin-top: 12px;">
+                    <div style="color: white; font-size: 13px; opacity: 0.9;">
+                        <strong>📋 Conformité impactée:</strong> ${securityReport.compliance_summary.frameworks_impacted.join(', ')}
+                    </div>
+                    <div style="color: white; font-size: 12px; opacity: 0.7; margin-top: 5px;">
+                        Statut: ${securityReport.compliance_summary.compliance_score || 'À évaluer'}
+                    </div>
+                </div>
+            ` : ''}
+            ${securityReport.cve_summary && securityReport.cve_summary.length > 0 ? `
+                <div style="background: rgba(239, 68, 68, 0.15); padding: 12px; border-radius: 8px; margin-top: 10px;">
+                    <div style="color: white; font-size: 13px; opacity: 0.9;">
+                        <strong>🚨 CVEs détectées:</strong> ${securityReport.cve_summary.slice(0, 5).join(', ')}${securityReport.cve_summary.length > 5 ? ` (+${securityReport.cve_summary.length - 5} autres)` : ''}
+                    </div>
+                </div>
+            ` : ''}
         </div>
     `;
     
@@ -679,7 +822,7 @@ function displaySecurityRecommendations(securityReport) {
                     <div style="margin-bottom: 15px;">
                         <div style="font-weight: 600; color: var(--text); margin-bottom: 8px;">
                             ${action.priority}: ${action.action}
-                        </div>
+        </div>
                         <div style="color: var(--text-muted); margin-bottom: 10px; font-size: 14px;">
                             ${action.description}
                         </div>
@@ -734,18 +877,29 @@ function displaySecurityRecommendations(securityReport) {
                     </div>
                     
                     ${hostRec.quick_wins && hostRec.quick_wins.length > 0 ? `
-                        <div style="background: rgba(16, 185, 129, 0.1); padding: 15px; border-radius: 8px; margin-bottom: 20px;">
-                            <h5 style="color: #10B981; margin-bottom: 10px; display: flex; align-items: center; gap: 8px;">
+                        <div style="background: linear-gradient(135deg, rgba(16, 185, 129, 0.15) 0%, rgba(16, 185, 129, 0.05) 100%); padding: 18px; border-radius: 10px; margin-bottom: 20px; border: 1px solid rgba(16, 185, 129, 0.3);">
+                            <h5 style="color: #10B981; margin-bottom: 15px; display: flex; align-items: center; gap: 8px; font-size: 16px;">
                                 <span>⚡</span> Quick Wins - Impact Immédiat
                             </h5>
-                            ${hostRec.quick_wins.map(qw => `
-                                <div style="margin-bottom: 10px;">
-                                    <div style="font-weight: 600; color: var(--text); margin-bottom: 8px;">${qw.action}</div>
-                                    <div style="background: var(--darker); padding: 12px; border-radius: 6px; font-family: 'Courier New', monospace; font-size: 13px; overflow-x: auto; color: #10B981;">
-                                        ${qw.commands.map(cmd => `<div>${escapeHtml(cmd)}</div>`).join('')}
+                            ${hostRec.quick_wins.map((qw, idx) => `
+                                <div style="margin-bottom: ${idx < hostRec.quick_wins.length - 1 ? '15px' : '0'};">
+                                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                                        <div style="font-weight: 600; color: var(--text); font-size: 15px;">${qw.action}</div>
+                                        <div style="display: flex; gap: 10px; font-size: 12px; color: var(--text-muted);">
+                                            ${qw.estimated_time ? `<span>⏱️ ${qw.estimated_time}</span>` : ''}
+                                            ${qw.difficulty ? `<span>📊 ${qw.difficulty}</span>` : ''}
+                                        </div>
                                     </div>
-                                    <div style="color: var(--text-muted); font-size: 13px; margin-top: 8px;">
-                                        💡 ${qw.impact}
+                                    <div style="background: #0f1419; padding: 15px; border-radius: 6px; font-family: 'Courier New', monospace; font-size: 13px; overflow-x: auto; color: #10B981; line-height: 1.6;">
+                                        ${qw.commands ? qw.commands.map(cmd => `<div style="margin: 2px 0;">${escapeHtml(cmd)}</div>`).join('') : ''}
+                                    </div>
+                                    <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 10px;">
+                                        <div style="color: var(--text-muted); font-size: 13px;">
+                                            💡 <strong style="color: #10B981;">Impact:</strong> ${qw.impact}
+                                        </div>
+                                        <button onclick="copyCommands('quickwin-${idx}')" style="padding: 6px 12px; background: #10B981; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: 500;">
+                                            📋 Copier
+                                        </button>
                                     </div>
                                 </div>
                             `).join('')}
@@ -754,55 +908,128 @@ function displaySecurityRecommendations(securityReport) {
                     
                     ${hostRec.ports_analysis && hostRec.ports_analysis.length > 0 ? `
                         <div style="margin-bottom: 20px;">
-                            <h5 style="color: var(--text); margin-bottom: 15px;">🔐 Analyse des Ports</h5>
-                            ${hostRec.ports_analysis.map(portAnalysis => `
-                                <details style="background: var(--darker); padding: 15px; border-radius: 8px; margin-bottom: 12px; cursor: pointer;">
-                                    <summary style="font-weight: 600; color: var(--text); cursor: pointer; list-style: none; display: flex; justify-content: between; align-items: center;">
-                                        <span>
-                                            <span style="display: inline-block; width: 80px; text-align: center; background: var(--${portAnalysis.risk === 'critical' ? 'danger' : portAnalysis.risk === 'high' ? 'warning' : portAnalysis.risk === 'medium' ? 'info' : 'success'}); padding: 4px 8px; border-radius: 4px; font-size: 12px; margin-right: 10px;">
-                                                Port ${portAnalysis.port}
+                            <h5 style="color: var(--text); margin-bottom: 15px; display: flex; align-items: center; gap: 8px;">
+                                <span>🔐</span> Analyse Détaillée des Ports
+                                <span style="font-size: 12px; font-weight: normal; color: var(--text-muted); background: var(--darker); padding: 4px 10px; border-radius: 12px;">
+                                    ${hostRec.ports_analysis.length} port(s)
+                                </span>
+                                ${hostRec.estimated_total_time ? `
+                                    <span style="font-size: 12px; font-weight: normal; color: var(--text-muted); margin-left: auto;">
+                                        ⏱️ Temps total: ${hostRec.estimated_total_time}
+                                    </span>
+                                ` : ''}
+                            </h5>
+                            ${hostRec.ports_analysis.map((portAnalysis, idx) => {
+                                const riskEmoji = {
+                                    'critical': '🔴',
+                                    'high': '🟠',
+                                    'medium': '🟡',
+                                    'low': '🟢'
+                                }[portAnalysis.risk] || '⚪';
+                                
+                                return `
+                                <details style="background: var(--darker); padding: 15px; border-radius: 8px; margin-bottom: 12px; cursor: pointer; border: 1px solid var(--border);" ${idx === 0 ? 'open' : ''}>
+                                    <summary style="font-weight: 600; color: var(--text); cursor: pointer; list-style: none; display: flex; justify-content: space-between; align-items: center; padding: 5px 0;">
+                                        <span style="display: flex; align-items: center; gap: 10px;">
+                                            <span style="display: inline-block; min-width: 90px; text-align: center; background: var(--${portAnalysis.risk === 'critical' ? 'danger' : portAnalysis.risk === 'high' ? 'warning' : portAnalysis.risk === 'medium' ? 'info' : 'success'}); padding: 6px 12px; border-radius: 6px; font-size: 13px; font-weight: 700;">
+                                                ${riskEmoji} ${portAnalysis.port}
                                             </span>
-                                            ${portAnalysis.service} - ${portAnalysis.description}
+                                            <div>
+                                                <div style="font-size: 15px;">${portAnalysis.service}${portAnalysis.category ? ` <span style="color: var(--text-muted); font-size: 12px;">(${portAnalysis.category})</span>` : ''}</div>
+                                                <div style="font-size: 13px; color: var(--text-muted); font-weight: normal; margin-top: 2px;">${portAnalysis.description}</div>
+                                            </div>
                                         </span>
-                                        <span style="margin-left: auto; font-size: 12px; color: var(--text-muted);">Cliquer pour voir les solutions ▼</span>
+                                        <span style="display: flex; align-items: center; gap: 15px; font-size: 12px; color: var(--text-muted);">
+                                            ${portAnalysis.estimated_time ? `<span>⏱️ ${portAnalysis.estimated_time}</span>` : ''}
+                                            ${portAnalysis.difficulty ? `<span>📊 ${portAnalysis.difficulty}</span>` : ''}
+                                            <span>▼</span>
+                                        </span>
                                     </summary>
                                     
                                     <div style="margin-top: 15px; padding-top: 15px; border-top: 1px solid var(--border);">
+                                        ${portAnalysis.cve_refs && portAnalysis.cve_refs.length > 0 ? `
+                                            <div style="background: rgba(239, 68, 68, 0.1); padding: 10px; border-radius: 6px; margin-bottom: 15px;">
+                                                <div style="font-size: 12px; font-weight: 600; color: #EF4444; margin-bottom: 5px;">🚨 CVEs Connues</div>
+                                                <div style="font-size: 13px; color: var(--text-muted); font-family: monospace;">
+                                                    ${portAnalysis.cve_refs.map(cve => `<span style="margin-right: 10px;">${cve}</span>`).join('')}
+                                                </div>
+                                            </div>
+                                        ` : ''}
+                                        
+                                        ${portAnalysis.compliance && Object.keys(portAnalysis.compliance).length > 0 ? `
+                                            <div style="background: rgba(102, 126, 234, 0.1); padding: 10px; border-radius: 6px; margin-bottom: 15px;">
+                                                <div style="font-size: 12px; font-weight: 600; color: #667eea; margin-bottom: 5px;">📋 Conformité Impactée</div>
+                                                <div style="font-size: 13px; color: var(--text-muted);">
+                                                    ${Object.entries(portAnalysis.compliance).map(([framework, ref]) => `<span style="margin-right: 12px;"><strong>${framework}:</strong> ${ref}</span>`).join('')}
+                                                </div>
+                                            </div>
+                                        ` : ''}
+                                        
                                         <div style="margin-bottom: 15px;">
-                                            <div style="font-weight: 600; color: var(--text); margin-bottom: 8px;">📋 Commandes de Correction</div>
-                                            <div style="background: #0f1419; padding: 15px; border-radius: 6px; font-family: 'Courier New', monospace; font-size: 13px; overflow-x: auto; line-height: 1.6; color: #a6e22e;">
-                                                ${portAnalysis.commands.map(cmd => `<div style="margin: 2px 0;">${escapeHtml(cmd)}</div>`).join('')}
+                                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                                                <div style="font-weight: 600; color: var(--text);">📋 Commandes de Correction</div>
+                                                <button onclick="copyToClipboard(${idx}, 'port-${portAnalysis.port}')" class="copy-btn" style="padding: 6px 12px; background: var(--primary); color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: 500;">
+                                                    📋 Copier
+                                                </button>
+                                            </div>
+                                            <div id="port-${portAnalysis.port}-commands" style="background: #0f1419; padding: 15px; border-radius: 6px; font-family: 'Courier New', monospace; font-size: 13px; overflow-x: auto; line-height: 1.6; color: #a6e22e; position: relative;">
+                                                ${portAnalysis.commands ? portAnalysis.commands.map(cmd => `<div style="margin: 2px 0;">${escapeHtml(cmd)}</div>`).join('') : '<div>Aucune commande disponible</div>'}
                                             </div>
                                         </div>
                                         
-                                        <div>
-                                            <div style="font-weight: 600; color: var(--text); margin-bottom: 8px;">💡 Recommandations</div>
+                                        <div style="margin-bottom: 15px;">
+                                            <div style="font-weight: 600; color: var(--text); margin-bottom: 8px;">💡 Recommandations Professionnelles</div>
                                             <ul style="color: var(--text-muted); font-size: 14px; margin-left: 20px; line-height: 1.8;">
-                                                ${portAnalysis.recommendations.map(rec => `<li>${rec}</li>`).join('')}
+                                                ${portAnalysis.recommendations ? portAnalysis.recommendations.map(rec => `<li>${rec}</li>`).join('') : '<li>Aucune recommandation disponible</li>'}
                                             </ul>
                                         </div>
+                                        
+                                        ${portAnalysis.references && portAnalysis.references.length > 0 ? `
+                                            <div style="margin-top: 15px; padding: 12px; background: rgba(6, 182, 212, 0.05); border-left: 3px solid var(--primary); border-radius: 4px;">
+                                                <div style="font-size: 12px; font-weight: 600; color: var(--primary); margin-bottom: 6px;">📚 Ressources & Documentation</div>
+                                                <div style="font-size: 13px;">
+                                                    ${portAnalysis.references.map(ref => `<div style="margin: 4px 0;"><a href="${ref}" target="_blank" style="color: var(--primary); text-decoration: none;">${ref}</a></div>`).join('')}
+                                                </div>
+                                            </div>
+                                        ` : ''}
                                     </div>
                                 </details>
-                            `).join('')}
+                            `}).join('')}
                         </div>
                     ` : ''}
                     
                     ${hostRec.strategic_actions && hostRec.strategic_actions.length > 0 ? `
-                        <div style="background: rgba(102, 126, 234, 0.1); padding: 15px; border-radius: 8px;">
-                            <h5 style="color: #667eea; margin-bottom: 12px; display: flex; align-items: center; gap: 8px;">
-                                <span>🎯</span> Actions Stratégiques
+                        <div style="background: rgba(102, 126, 234, 0.1); padding: 18px; border-radius: 10px; border: 1px solid rgba(102, 126, 234, 0.3);">
+                            <h5 style="color: #667eea; margin-bottom: 15px; display: flex; align-items: center; gap: 8px; font-size: 16px;">
+                                <span>🎯</span> Actions Stratégiques Recommandées
                             </h5>
-                            ${hostRec.strategic_actions.map(action => `
-                                <div style="margin-bottom: 15px; padding-bottom: 15px; border-bottom: 1px solid var(--border);">
-                                    <div style="font-weight: 600; color: var(--text); margin-bottom: 5px;">${action.title}</div>
-                                    <div style="color: var(--text-muted); font-size: 14px; margin-bottom: 10px;">${action.description}</div>
-                                    <div style="font-size: 14px; color: var(--text-muted); margin-bottom: 8px;">Étapes:</div>
-                                    <ol style="color: var(--text-muted); font-size: 14px; margin-left: 20px; line-height: 1.6;">
-                                        ${action.steps.map(step => `<li>${step}</li>`).join('')}
+                            ${hostRec.strategic_actions.map((action, idx) => `
+                                <div style="margin-bottom: ${idx < hostRec.strategic_actions.length - 1 ? '20px' : '0'}; padding-bottom: ${idx < hostRec.strategic_actions.length - 1 ? '20px' : '0'}; border-bottom: ${idx < hostRec.strategic_actions.length - 1 ? '1px solid rgba(102, 126, 234, 0.2)' : 'none'};">
+                                    <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 10px;">
+                                        <div style="font-weight: 600; color: var(--text); font-size: 15px;">${action.title}</div>
+                                        ${action.priority ? `
+                                            <div style="padding: 4px 10px; background: rgba(239, 68, 68, 0.2); color: #EF4444; border-radius: 6px; font-size: 11px; font-weight: 600;">
+                                                ${action.priority}
+                                            </div>
+                                        ` : ''}
+                                    </div>
+                                    <div style="color: var(--text-muted); font-size: 14px; margin-bottom: 12px;">${action.description}</div>
+                                    ${action.estimated_time || action.difficulty ? `
+                                        <div style="display: flex; gap: 15px; margin-bottom: 12px; font-size: 13px;">
+                                            ${action.estimated_time ? `<span style="color: var(--text-muted);">⏱️ Temps: <strong style="color: var(--text);">${action.estimated_time}</strong></span>` : ''}
+                                            ${action.difficulty ? `<span style="color: var(--text-muted);">📊 Difficulté: <strong style="color: var(--text);">${action.difficulty}</strong></span>` : ''}
+                                        </div>
+                                    ` : ''}
+                                    <div style="font-size: 14px; color: var(--text); margin-bottom: 8px; font-weight: 500;">Plan d'Action:</div>
+                                    <ol style="color: var(--text-muted); font-size: 14px; margin-left: 20px; line-height: 1.8;">
+                                        ${action.steps.map(step => `<li style="margin-bottom: 4px;">${step}</li>`).join('')}
                                     </ol>
                                     ${action.resources && action.resources.length > 0 ? `
-                                        <div style="margin-top: 8px; font-size: 13px;">
-                                            📚 Ressources: ${action.resources.map(r => `<a href="${r}" target="_blank" style="color: #667eea; text-decoration: none;">${r}</a>`).join(' • ')}
+                                        <div style="margin-top: 12px; padding: 10px; background: rgba(6, 182, 212, 0.08); border-radius: 6px;">
+                                            <div style="font-size: 12px; font-weight: 600; color: var(--primary); margin-bottom: 5px;">📚 Ressources & Documentation</div>
+                                            <div style="font-size: 13px; display: flex; flex-direction: column; gap: 4px;">
+                                                ${action.resources.map(r => `<a href="${r}" target="_blank" style="color: var(--primary); text-decoration: none; transition: opacity 0.2s;" onmouseover="this.style.opacity='0.7'" onmouseout="this.style.opacity='1'">→ ${r}</a>`).join('')}
+                                            </div>
                                         </div>
                                     ` : ''}
                                 </div>
@@ -827,6 +1054,55 @@ function escapeHtml(text) {
     const div = document.createElement('div');
     div.textContent = text;
     return div.innerHTML;
+}
+
+function copyToClipboard(idx, elementId) {
+    const commandsDiv = document.getElementById(`${elementId}-commands`);
+    if (!commandsDiv) return;
+    
+    const text = commandsDiv.innerText;
+    
+    navigator.clipboard.writeText(text).then(() => {
+        notify.success('Commandes copiées dans le presse-papier ! 📋');
+    }).catch(err => {
+        console.error('Erreur copie:', err);
+        notify.error('Erreur lors de la copie');
+    });
+}
+
+async function downloadRemediationScript() {
+    if (!window.currentScanId) {
+        notify.error('Aucun scan sélectionné');
+        return;
+    }
+    
+    try {
+        notify.info('Génération du script de remédiation...');
+        
+        const response = await fetch(`${API_URL}/scans/${window.currentScanId}/remediation-script`, {
+            headers: { 'Authorization': `Bearer ${authToken}` }
+        });
+        
+        if (!response.ok) {
+            notify.error('Erreur lors de la génération du script');
+            return;
+        }
+        
+        const blob = await response.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `pathfinder-remediation-scan-${window.currentScanId}.sh`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        window.URL.revokeObjectURL(url);
+        
+        notify.success('Script téléchargé ! Vérifier et exécuter avec sudo. 🛡️');
+    } catch (error) {
+        console.error('Erreur téléchargement script:', error);
+        notify.error('Erreur lors du téléchargement');
+    }
 }
 
 function closeModal() {
