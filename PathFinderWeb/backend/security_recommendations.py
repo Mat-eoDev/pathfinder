@@ -1633,13 +1633,19 @@ def generate_scan_report(scan_data):
     """
     hosts = scan_data.get('hosts', [])
     
+    # Compter les hôtes par niveau de risque (case-insensitive)
+    critical_count = sum(1 for h in hosts if (h.get('risk_level') or '').lower() == 'critical')
+    high_count = sum(1 for h in hosts if (h.get('risk_level') or '').lower() == 'high')
+    medium_count = sum(1 for h in hosts if (h.get('risk_level') or '').lower() == 'medium')
+    low_count = sum(1 for h in hosts if (h.get('risk_level') or '').lower() == 'low')
+    
     report = {
         "executive_summary": {
             "total_hosts": len(hosts),
-            "critical_hosts": sum(1 for h in hosts if h.get('risk_level') == 'critical'),
-            "high_risk_hosts": sum(1 for h in hosts if h.get('risk_level') == 'high'),
-            "medium_risk_hosts": sum(1 for h in hosts if h.get('risk_level') == 'medium'),
-            "low_risk_hosts": sum(1 for h in hosts if h.get('risk_level') == 'low'),
+            "critical_hosts": critical_count,
+            "high_risk_hosts": high_count,
+            "medium_risk_hosts": medium_count,
+            "low_risk_hosts": low_count,
             "score": 0,
             "grade": "F",
             "total_remediation_time": "0 min",
@@ -1728,25 +1734,38 @@ def generate_scan_report(scan_data):
             "compliance_impact": "MOYEN - Risque de non-conformité"
         })
     
-    # Calcul du score de sécurité (0-100, pondéré)
-    total_risk_points = (
-        report["executive_summary"]["critical_hosts"] * 25 +
-        report["executive_summary"]["high_risk_hosts"] * 10 +
-        report["executive_summary"]["medium_risk_hosts"] * 5 +
-        report["executive_summary"]["low_risk_hosts"] * 1
-    )
+    # Calcul du score de sécurité (0-100, pondéré et normalisé)
+    # Formule: Score basé sur le % d'hôtes à risque pondéré
+    total_hosts = len(hosts) if hosts else 1
     
-    score = max(0, 100 - total_risk_points)
+    # Pondération par risque
+    critical_weight = report["executive_summary"]["critical_hosts"] * 25
+    high_weight = report["executive_summary"]["high_risk_hosts"] * 10  
+    medium_weight = report["executive_summary"]["medium_risk_hosts"] * 5
+    low_weight = report["executive_summary"]["low_risk_hosts"] * 1
+    
+    total_risk_points = critical_weight + high_weight + medium_weight + low_weight
+    
+    # Normaliser sur 100 (score inversé : moins de risque = meilleur score)
+    # Si total_hosts = 10 et tous critiques = 10*25 = 250 points max
+    max_possible_points = total_hosts * 25
+    
+    if max_possible_points > 0:
+        risk_percentage = (total_risk_points / max_possible_points) * 100
+        score = max(0, int(100 - risk_percentage))
+    else:
+        score = 100
+    
     report["executive_summary"]["score"] = score
     
     # Grade (A à F)
     if score >= 90:
         report["executive_summary"]["grade"] = "A"
-    elif score >= 80:
+    elif score >= 75:
         report["executive_summary"]["grade"] = "B"
-    elif score >= 70:
-        report["executive_summary"]["grade"] = "C"
     elif score >= 60:
+        report["executive_summary"]["grade"] = "C"
+    elif score >= 40:
         report["executive_summary"]["grade"] = "D"
     else:
         report["executive_summary"]["grade"] = "F"

@@ -626,8 +626,9 @@ function displayScanDetails(scan) {
             <h3 style="color: var(--primary); margin: 0;">🖥️ Hôtes Détectés</h3>
             <div style="display: flex; gap: 10px;">
                 <button onclick="filterByRisk('all')" class="filter-btn active" data-filter="all">Tous (${(scan.hosts || []).length})</button>
-                <button onclick="filterByRisk('critical')" class="filter-btn" data-filter="critical">🔴 Critiques (${scan.critical_hosts || 0})</button>
-                <button onclick="filterByRisk('high')" class="filter-btn" data-filter="high">🟠 Élevés (${scan.high_risk_hosts || 0})</button>
+                <button onclick="filterByRisk('critical')" class="filter-btn" data-filter="critical">🔴 Critiques (${(scan.hosts || []).filter(h => (h.risk_level || '').toLowerCase() === 'critical').length})</button>
+                <button onclick="filterByRisk('high')" class="filter-btn" data-filter="high">🟠 Élevés (${(scan.hosts || []).filter(h => (h.risk_level || '').toLowerCase() === 'high').length})</button>
+                <button onclick="filterByRisk('medium')" class="filter-btn" data-filter="medium">🟡 Moyens (${(scan.hosts || []).filter(h => (h.risk_level || '').toLowerCase() === 'medium').length})</button>
             </div>
         </div>
         
@@ -655,9 +656,12 @@ function renderHosts(hosts, filterText = '', riskFilter = 'all') {
     // Filtrage
     let filteredHosts = hosts;
     
-    // Filtre par risque
+    // Filtre par risque (case-insensitive pour gérer CRITICAL vs critical)
     if (riskFilter !== 'all') {
-        filteredHosts = filteredHosts.filter(h => h.risk_level === riskFilter);
+        filteredHosts = filteredHosts.filter(h => {
+            const hostRisk = (h.risk_level || '').toLowerCase();
+            return hostRisk === riskFilter.toLowerCase();
+        });
     }
     
     // Filtre par texte
@@ -679,10 +683,27 @@ function renderHosts(hosts, filterText = '', riskFilter = 'all') {
         searchCount.textContent = `${filteredHosts.length} / ${hosts.length}`;
     }
     
+    console.log(`Filtrage: ${filteredHosts.length} hôtes affichés (risque: ${riskFilter}, recherche: "${filterText}")`);
+    if (filteredHosts.length === 0 && hosts.length > 0) {
+        console.warn('Aucun hôte ne correspond aux filtres. Vérifier les risk_level:', hosts.map(h => h.risk_level));
+    }
+    
+    // Message si aucun résultat
+    if (filteredHosts.length === 0) {
+        container.innerHTML = `
+            <div style="text-align: center; padding: 40px; color: var(--text-muted);">
+                <div style="font-size: 48px; margin-bottom: 15px;">🔍</div>
+                <div style="font-size: 16px; margin-bottom: 8px;">Aucun hôte ne correspond aux critères</div>
+                <div style="font-size: 14px;">Essayez de modifier le filtre ou la recherche</div>
+            </div>
+        `;
+        return;
+    }
+    
     // Rendu HTML
     const hostsHtml = filteredHosts.map(host => {
         const riskClass = `risk-${(host.risk_level || 'info').toLowerCase()}`;
-            const openPorts = host.open_ports || [];
+        const openPorts = host.open_ports || [];
         const riskColors = {
             'critical': 'var(--danger)',
             'high': 'var(--warning)',
@@ -690,7 +711,8 @@ function renderHosts(hosts, filterText = '', riskFilter = 'all') {
             'low': 'var(--success)',
             'info': 'var(--text-muted)'
         };
-        const riskColor = riskColors[host.risk_level] || 'var(--text-muted)';
+        const riskLevel = (host.risk_level || 'info').toLowerCase();
+        const riskColor = riskColors[riskLevel] || 'var(--text-muted)';
             
             return `
             <div class="host-card ${riskClass}" style="background: var(--dark); padding: 20px; border-radius: 12px; margin-bottom: 15px; border-left: 4px solid ${riskColor}; transition: all 0.3s ease;">
