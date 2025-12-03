@@ -17,7 +17,8 @@ import os
 from security_recommendations import generate_host_recommendations, generate_scan_report, get_port_recommendations, generate_remediation_script
 from pentest_engine import (
     aggressive_port_scan, bruteforce_ssh, directory_busting, cve_scanner, 
-    network_mapping, test_exploit, crack_hash, reverse_dns_lookup, whois_lookup
+    network_mapping, test_exploit, crack_hash, reverse_dns_lookup, whois_lookup,
+    start_packet_capture, stop_packet_capture, spoof_mac_address, reset_mac_address, monitor_bandwidth
 )
 
 app = Flask(__name__)
@@ -1513,6 +1514,97 @@ def pentest_whois(current_user_id):
     try:
         results = whois_lookup(target)
         log_activity(current_user_id, 'pentest_whois', f'WHOIS {target}', json.dumps(results))
+        return jsonify(results), 200
+    except Exception as e:
+        return jsonify({'message': f'Erreur: {str(e)}'}), 500
+
+@app.route('/api/pentest/tools/packet-capture/start', methods=['POST'])
+@token_required
+def pentest_packet_capture_start(current_user_id):
+    """Démarrer capture de paquets."""
+    if not verify_pentest_access():
+        return jsonify({'message': 'Code pentest invalide'}), 403
+    
+    data = request.get_json()
+    interface = data.get('interface', 'en0')
+    duration = data.get('duration', 60)
+    
+    try:
+        results = start_packet_capture(interface, duration)
+        log_activity(current_user_id, 'pentest_packet_capture', f'Capture {interface}', json.dumps(results))
+        return jsonify(results), 200
+    except Exception as e:
+        return jsonify({'message': f'Erreur: {str(e)}'}), 500
+
+@app.route('/api/pentest/tools/packet-capture/stop', methods=['POST'])
+@token_required
+def pentest_packet_capture_stop(current_user_id):
+    """Arrêter capture de paquets."""
+    if not verify_pentest_access():
+        return jsonify({'message': 'Code pentest invalide'}), 403
+    
+    data = request.get_json()
+    capture_id = data.get('capture_id')
+    
+    if not capture_id:
+        return jsonify({'message': 'Capture ID requis'}), 400
+    
+    try:
+        results = stop_packet_capture(capture_id)
+        log_activity(current_user_id, 'pentest_packet_stop', f'Stop capture {capture_id}', json.dumps(results))
+        return jsonify(results), 200
+    except Exception as e:
+        return jsonify({'message': f'Erreur: {str(e)}'}), 500
+
+@app.route('/api/pentest/tools/mac-spoof', methods=['POST'])
+@token_required
+def pentest_mac_spoof(current_user_id):
+    """MAC spoofing."""
+    if not verify_pentest_access():
+        return jsonify({'message': 'Code pentest invalide'}), 403
+    
+    data = request.get_json()
+    interface = data.get('interface', 'en0')
+    new_mac = data.get('new_mac', None)
+    
+    try:
+        results = spoof_mac_address(interface, new_mac)
+        log_activity(current_user_id, 'pentest_mac_spoof', f'MAC spoof {interface}', json.dumps(results))
+        return jsonify(results), 200
+    except Exception as e:
+        return jsonify({'message': f'Erreur: {str(e)}'}), 500
+
+@app.route('/api/pentest/tools/mac-reset', methods=['POST'])
+@token_required
+def pentest_mac_reset(current_user_id):
+    """Reset MAC address."""
+    if not verify_pentest_access():
+        return jsonify({'message': 'Code pentest invalide'}), 403
+    
+    data = request.get_json()
+    interface = data.get('interface', 'en0')
+    
+    try:
+        results = reset_mac_address(interface)
+        log_activity(current_user_id, 'pentest_mac_reset', f'MAC reset {interface}', json.dumps(results))
+        return jsonify(results), 200
+    except Exception as e:
+        return jsonify({'message': f'Erreur: {str(e)}'}), 500
+
+@app.route('/api/pentest/tools/bandwidth-monitor', methods=['POST'])
+@token_required
+def pentest_bandwidth_monitor(current_user_id):
+    """Monitoring de bande passante."""
+    if not verify_pentest_access():
+        return jsonify({'message': 'Code pentest invalide'}), 403
+    
+    data = request.get_json()
+    interface = data.get('interface', 'en0')
+    duration = data.get('duration', 10)
+    
+    try:
+        results = monitor_bandwidth(interface, duration)
+        log_activity(current_user_id, 'pentest_bandwidth', f'Bandwidth {interface}', json.dumps(results))
         return jsonify(results), 200
     except Exception as e:
         return jsonify({'message': f'Erreur: {str(e)}'}), 500

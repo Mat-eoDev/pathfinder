@@ -1239,24 +1239,259 @@ async function whoisLookup() {
     }
 }
 
+let currentCaptureId = null;
+
 async function startPacketCapture() {
-    notify.info('Fonction en développement - Nécessite accès root');
+    const interface = document.getElementById('sniff-interface').value;
+    const resultDiv = document.getElementById('sniff-result');
+    
+    resultDiv.innerHTML = '<div class="loading">⏳ Démarrage capture...</div>';
+    addPentestLog(`Packet capture: ${interface}`, 'attack');
+    
+    try {
+        const response = await fetch(`${API_URL}/pentest/tools/packet-capture/start`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${authToken}`,
+                'X-Pentest-Code': ADMIN_CODE,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                interface: interface,
+                duration: 60
+            })
+        });
+        
+        const data = await response.json();
+        
+        if (response.ok && data.success) {
+            currentCaptureId = data.capture_id;
+            resultDiv.innerHTML = `
+                <div class="success" style="padding: 15px;">
+                    ✅ Capture en cours
+                    <div style="margin-top: 10px; font-size: 13px; color: var(--text-muted);">
+                        Interface: <strong>${data.interface}</strong><br>
+                        Capture ID: <code>${data.capture_id}</code><br>
+                        Fichier: <code>${data.output_file}</code><br>
+                        Status: <strong>${data.status}</strong>
+                    </div>
+                    <div style="margin-top: 10px; padding: 10px; background: rgba(245, 158, 11, 0.1); border-radius: 6px; font-size: 12px;">
+                        ${data.info || 'Capture de 100 paquets...'}
+                    </div>
+                </div>
+            `;
+            notify.success('Capture démarrée');
+            addPentestLog(`Capture démarrée: ${data.capture_id}`, 'success');
+        } else {
+            resultDiv.innerHTML = `<div class="error">❌ ${data.error || data.message || 'Erreur'}</div>`;
+            notify.error(data.error || data.message || 'Erreur');
+        }
+    } catch (error) {
+        resultDiv.innerHTML = `<div class="error">❌ Erreur: ${error.message}</div>`;
+        notify.error('Erreur connexion API');
+    }
 }
 
 async function stopPacketCapture() {
-    notify.info('Capture arrêtée');
+    const resultDiv = document.getElementById('sniff-result');
+    
+    if (!currentCaptureId) {
+        notify.error('Aucune capture en cours');
+        return;
+    }
+    
+    resultDiv.innerHTML = '<div class="loading">⏳ Arrêt capture...</div>';
+    
+    try {
+        const response = await fetch(`${API_URL}/pentest/tools/packet-capture/stop`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${authToken}`,
+                'X-Pentest-Code': ADMIN_CODE,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                capture_id: currentCaptureId
+            })
+        });
+        
+        const data = await response.json();
+        
+        if (response.ok && data.success) {
+            resultDiv.innerHTML = `
+                <div class="success" style="padding: 15px;">
+                    ✅ Capture arrêtée
+                    <div style="margin-top: 10px; font-size: 13px; color: var(--text-muted);">
+                        Paquets capturés: <strong>${data.packets_captured}</strong><br>
+                        Taille fichier: <strong>${data.file_size}</strong><br>
+                        Fichier PCAP: <code>${data.output_file}</code>
+                    </div>
+                    <div style="margin-top: 10px; padding: 10px; background: rgba(6, 182, 212, 0.1); border-radius: 6px; font-size: 12px;">
+                        💡 Analyser avec: <code>tcpdump -r ${data.output_file}</code> ou Wireshark
+                    </div>
+                </div>
+            `;
+            notify.success('Capture terminée');
+            addPentestLog(`Capture terminée: ${data.packets_captured} paquets`, 'success');
+            currentCaptureId = null;
+        } else {
+            resultDiv.innerHTML = `<div class="error">❌ ${data.error || data.message || 'Erreur'}</div>`;
+            notify.error(data.error || data.message || 'Erreur');
+        }
+    } catch (error) {
+        resultDiv.innerHTML = `<div class="error">❌ Erreur: ${error.message}</div>`;
+        notify.error('Erreur connexion API');
+    }
 }
 
 async function spoofMAC() {
-    notify.warning('Fonction dangereuse - Nécessite accès root');
+    const newMAC = document.getElementById('mac-address').value.trim();
+    const resultDiv = document.getElementById('mac-result');
+    
+    if (!confirm('⚠️ Changer MAC peut couper la connexion réseau. Continuer ?')) {
+        return;
+    }
+    
+    resultDiv.innerHTML = '<div class="loading">⏳ MAC spoofing...</div>';
+    addPentestLog(`MAC spoofing: ${newMAC || 'aléatoire'}`, 'attack');
+    
+    try {
+        const response = await fetch(`${API_URL}/pentest/tools/mac-spoof`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${authToken}`,
+                'X-Pentest-Code': ADMIN_CODE,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                interface: 'en0',  // WiFi par défaut
+                new_mac: newMAC || null
+            })
+        });
+        
+        const data = await response.json();
+        
+        if (response.ok && data.success) {
+            resultDiv.innerHTML = `
+                <div class="success" style="padding: 15px;">
+                    ✅ MAC spoofée avec succès
+                    <div style="margin-top: 10px; font-family: monospace; font-size: 14px; color: var(--text-muted);">
+                        Interface: <strong>${data.interface}</strong><br>
+                        Nouvelle MAC: <strong style="color: var(--danger);">${data.new_mac}</strong>
+                    </div>
+                    <div style="margin-top: 10px; padding: 10px; background: rgba(239, 68, 68, 0.1); border-radius: 6px; font-size: 12px;">
+                        ⚠️ ${data.info || 'Connexion réseau peut être interrompue'}
+                    </div>
+                </div>
+            `;
+            notify.warning(`MAC changée: ${data.new_mac}`);
+            addPentestLog(`MAC spoofée: ${data.new_mac}`, 'success');
+        } else {
+            resultDiv.innerHTML = `<div class="error">❌ ${data.error || data.message || 'Erreur'}</div>`;
+            notify.error(data.error || data.message || 'Erreur');
+        }
+    } catch (error) {
+        resultDiv.innerHTML = `<div class="error">❌ Erreur: ${error.message}</div>`;
+        notify.error('Erreur connexion API');
+    }
 }
 
 async function resetMAC() {
-    notify.info('MAC reset');
+    const resultDiv = document.getElementById('mac-result');
+    
+    resultDiv.innerHTML = '<div class="loading">⏳ Reset MAC...</div>';
+    addPentestLog('MAC reset', 'info');
+    
+    try {
+        const response = await fetch(`${API_URL}/pentest/tools/mac-reset`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${authToken}`,
+                'X-Pentest-Code': ADMIN_CODE,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                interface: 'en0'
+            })
+        });
+        
+        const data = await response.json();
+        
+        if (response.ok && data.success) {
+            resultDiv.innerHTML = `
+                <div class="success" style="padding: 15px;">
+                    ✅ MAC reset à la valeur d'origine
+                    <div style="margin-top: 10px; font-size: 13px; color: var(--text-muted);">
+                        Interface: <strong>${data.interface}</strong><br>
+                        ${data.info || 'Connexion réseau restaurée'}
+                    </div>
+                </div>
+            `;
+            notify.success('MAC reset');
+            addPentestLog('MAC reset réussi', 'success');
+        } else {
+            resultDiv.innerHTML = `<div class="error">❌ ${data.error || data.message || 'Erreur'}</div>`;
+            notify.error(data.error || data.message || 'Erreur');
+        }
+    } catch (error) {
+        resultDiv.innerHTML = `<div class="error">❌ Erreur: ${error.message}</div>`;
+        notify.error('Erreur connexion API');
+    }
 }
 
 async function monitorBandwidth() {
-    notify.info('Monitoring en développement');
+    const resultDiv = document.getElementById('bandwidth-result');
+    
+    resultDiv.innerHTML = '<div class="loading">⏳ Monitoring pendant 10 secondes...</div>';
+    addPentestLog('Bandwidth monitoring démarré', 'info');
+    
+    try {
+        const response = await fetch(`${API_URL}/pentest/tools/bandwidth-monitor`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${authToken}`,
+                'X-Pentest-Code': ADMIN_CODE,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                interface: 'en0',
+                duration: 10
+            })
+        });
+        
+        const data = await response.json();
+        
+        if (response.ok && data.success) {
+            resultDiv.innerHTML = `
+                <div class="success" style="padding: 15px;">
+                    ✅ Monitoring terminé (${data.duration}s)
+                    <div style="margin-top: 15px; display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
+                        <div style="background: rgba(16, 185, 129, 0.1); padding: 12px; border-radius: 8px;">
+                            <div style="font-size: 12px; color: var(--text-muted);">⬆️ Upload</div>
+                            <div style="font-size: 20px; font-weight: 600; color: var(--success);">${data.upload.mbps} Mbps</div>
+                            <div style="font-size: 11px; color: var(--text-muted);">${data.upload.human} | ${data.upload.packets} paquets</div>
+                        </div>
+                        <div style="background: rgba(6, 182, 212, 0.1); padding: 12px; border-radius: 8px;">
+                            <div style="font-size: 12px; color: var(--text-muted);">⬇️ Download</div>
+                            <div style="font-size: 20px; font-weight: 600; color: var(--info);">${data.download.mbps} Mbps</div>
+                            <div style="font-size: 11px; color: var(--text-muted);">${data.download.human} | ${data.download.packets} paquets</div>
+                        </div>
+                    </div>
+                    <div style="margin-top: 12px; text-align: center; font-size: 14px; color: var(--text-muted);">
+                        Total: <strong style="color: var(--text);">${data.total_mbps} Mbps</strong>
+                    </div>
+                </div>
+            `;
+            notify.success(`Débit: ${data.total_mbps} Mbps`);
+            addPentestLog(`Bandwidth: ${data.total_mbps} Mbps`, 'success');
+        } else {
+            resultDiv.innerHTML = `<div class="error">❌ ${data.error || data.message || 'Erreur'}</div>`;
+            notify.error(data.error || data.message || 'Erreur');
+        }
+    } catch (error) {
+        resultDiv.innerHTML = `<div class="error">❌ Erreur: ${error.message}</div>`;
+        notify.error('Erreur connexion API');
+    }
 }
 
 // Initialiser au chargement
