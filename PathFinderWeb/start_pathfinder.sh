@@ -47,7 +47,7 @@ cd backend
 
 if ! pip3 show flask &> /dev/null; then
     echo "⚠️  Dépendances manquantes. Installation..."
-    pip3 install -r c
+    pip3 install -r requirements.txt
 fi
 
 echo "✅ Dépendances Python OK"
@@ -57,7 +57,7 @@ echo ""
 echo "🚀 Lancement du serveur Flask..."
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo "📊 Dashboard Web: http://localhost:5000"
+echo "📊 Dashboard Web: http://localhost:5001"
 echo "🔑 Compte test: admin@pathfinder.local / admin123"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""

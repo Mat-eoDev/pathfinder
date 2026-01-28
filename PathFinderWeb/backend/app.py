@@ -27,7 +27,7 @@ CORS(app)  # Permettre les requêtes cross-origin
 # Configuration
 app.config['SECRET_KEY'] = os.getenv('PATHFINDER_SECRET_KEY', 'pathfinder-secret-key-change-in-production')
 app.config['MYSQL_HOST'] = os.getenv('PATHFINDER_MYSQL_HOST', 'localhost')
-app.config['MYSQL_PORT'] = int(os.getenv('PATHFINDER_MYSQL_PORT', '8889'))  # Port MAMP par défaut
+app.config['MYSQL_PORT'] = int(os.getenv('PATHFINDER_MYSQL_PORT', '3306'))  # Port MySQL standard (3306) ou MAMP (8889)
 app.config['MYSQL_USER'] = os.getenv('PATHFINDER_MYSQL_USER', 'root')
 app.config['MYSQL_PASSWORD'] = os.getenv('PATHFINDER_MYSQL_PASSWORD', 'root')  # Mot de passe MAMP par défaut
 app.config['MYSQL_DATABASE'] = os.getenv('PATHFINDER_MYSQL_DATABASE', 'pathfinder')
@@ -35,30 +35,32 @@ app.config['MYSQL_UNIX_SOCKET'] = os.getenv('PATHFINDER_MYSQL_SOCKET', '/Applica
 
 # Connexion MySQL
 def get_db_connection():
-    """Crée une connexion à la base de données MySQL (MAMP)."""
+    """Crée une connexion à la base de données MySQL."""
+    # D'abord essayer avec host:port (fonctionne partout : Hostinger, VPS, etc.)
     try:
-        # Essayer d'abord avec le socket MAMP
         connection = mysql.connector.connect(
-            unix_socket=app.config['MYSQL_UNIX_SOCKET'],
+            host=app.config['MYSQL_HOST'],
+            port=app.config['MYSQL_PORT'],
             user=app.config['MYSQL_USER'],
             password=app.config['MYSQL_PASSWORD'],
             database=app.config['MYSQL_DATABASE']
         )
         return connection
     except Error as e:
-        # Si le socket échoue, essayer avec host:port
-        try:
-            connection = mysql.connector.connect(
-                host=app.config['MYSQL_HOST'],
-                port=app.config['MYSQL_PORT'],
-                user=app.config['MYSQL_USER'],
-                password=app.config['MYSQL_PASSWORD'],
-                database=app.config['MYSQL_DATABASE']
-            )
-            return connection
-        except Error as e2:
-            print(f"Erreur de connexion MySQL: {e2}")
-            return None
+        # Fallback : essayer avec socket Unix (MAMP local uniquement)
+        if app.config.get('MYSQL_UNIX_SOCKET'):
+            try:
+                connection = mysql.connector.connect(
+                    unix_socket=app.config['MYSQL_UNIX_SOCKET'],
+                    user=app.config['MYSQL_USER'],
+                    password=app.config['MYSQL_PASSWORD'],
+                    database=app.config['MYSQL_DATABASE']
+                )
+                return connection
+            except Error as e2:
+                print(f"Erreur de connexion MySQL (socket): {e2}")
+        print(f"Erreur de connexion MySQL (host:port): {e}")
+        return None
 
 # Décorateur d'authentification
 def token_required(f):
@@ -1612,8 +1614,18 @@ def pentest_bandwidth_monitor(current_user_id):
         return jsonify({'message': f'Erreur: {str(e)}'}), 500
 
 if __name__ == '__main__':
-    print("🚀 PathFinder API démarrée sur http://localhost:5001")
-    print("📊 Dashboard disponible sur http://localhost:5001")
-    print("⚠️  Note: Port 5001 utilisé (5000 est pris par AirPlay sur macOS)")
-    app.run(debug=True, host='0.0.0.0', port=5001)
+    # Mode développement uniquement
+    # En production, utiliser wsgi.py avec serveur web (Apache/Nginx)
+    DEBUG_MODE = os.getenv('FLASK_DEBUG', 'False').lower() == 'true'
+    PORT = int(os.getenv('PORT', '5001'))
+    
+    print("🚀 PathFinder API démarrée sur http://localhost:{}".format(PORT))
+    print("📊 Dashboard disponible sur http://localhost:{}".format(PORT))
+    
+    if DEBUG_MODE:
+        print("⚠️  Mode DEBUG activé - Ne pas utiliser en production !")
+    else:
+        print("✅ Mode PRODUCTION - Utiliser wsgi.py avec serveur web en production")
+    
+    app.run(debug=DEBUG_MODE, host='0.0.0.0', port=PORT)
 
