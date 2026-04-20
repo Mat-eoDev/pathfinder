@@ -73,11 +73,27 @@ public partial class ScheduledScansPage : ContentPage
 		schedule.NextRunAt = schedule.ComputeNextRun();
 
 		ScheduleService.Upsert(schedule);
+
+		// Enregistrement comme vraie tâche système (launchd/schtasks) si possible.
+		// Le timer in-process (ScheduleService) reste la sécurité fallback.
+		var systemStatus = "";
+		if (SystemScheduler.IsSupported && schedule.Enabled)
+		{
+			if (SystemScheduler.Install(schedule, out var msg))
+				systemStatus = "\n✅ Scheduler OS activé : le scan tournera même app fermée.";
+			else
+				systemStatus = $"\n⚠️ Scheduler OS indisponible ({msg}). Le scan ne tournera que si PathFinder est ouverte.";
+		}
+		else if (!schedule.Enabled && SystemScheduler.IsSupported)
+		{
+			SystemScheduler.Uninstall(schedule.Id, out string _unused);
+		}
+
 		ResetForm();
 		RefreshList();
 
 		await DisplayAlert("✅ Enregistré",
-			$"Prochain lancement : {schedule.NextRunAt:dd/MM/yyyy HH:mm}",
+			$"Prochain lancement : {schedule.NextRunAt:dd/MM/yyyy HH:mm}{systemStatus}",
 			"OK");
 	}
 
@@ -195,6 +211,8 @@ public partial class ScheduledScansPage : ContentPage
 			if (confirm)
 			{
 				ScheduleService.Delete(s.Id);
+				if (SystemScheduler.IsSupported)
+					SystemScheduler.Uninstall(s.Id, out string _unused);
 				RefreshList();
 			}
 		};

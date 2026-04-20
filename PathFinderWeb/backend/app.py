@@ -6,6 +6,8 @@ Gère l'authentification, les scans et l'envoi des résultats vers MySQL
 
 from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
 import mysql.connector
 from mysql.connector import Error
 import hashlib
@@ -26,6 +28,28 @@ from pentest_engine import (
 
 app = Flask(__name__)
 CORS(app)  # Permettre les requêtes cross-origin
+
+# ----- Rate limiting (anti brute-force / DoS) ------------------------------
+# Stockage mémoire par défaut (OK pour un process unique).
+# En prod multi-worker, définir PATHFINDER_LIMITER_STORAGE=redis://... par ex.
+_limiter_storage = os.getenv('PATHFINDER_LIMITER_STORAGE', 'memory://')
+limiter = Limiter(
+    key_func=get_remote_address,
+    app=app,
+    storage_uri=_limiter_storage,
+    # Garde-fou global pour tous les endpoints non taggés explicitement.
+    default_limits=["1000 per hour", "200 per minute"],
+    headers_enabled=True,  # renvoie X-RateLimit-* dans les réponses
+)
+
+
+@app.errorhandler(429)
+def ratelimit_handler(e):
+    """Réponse JSON propre quand un client dépasse les limites."""
+    return jsonify({
+        'message': 'Trop de requêtes. Réessayez plus tard.',
+        'retry_after': str(e.description) if hasattr(e, 'description') else None,
+    }), 429
 
 # ----- Secret JWT : exigé en prod, généré éphémèrement en debug -----
 _secret = os.getenv('PATHFINDER_SECRET_KEY')
@@ -156,6 +180,7 @@ def token_required(f):
 # ========== ROUTES D'AUTHENTIFICATION ==========
 
 @app.route('/api/register', methods=['POST'])
+@limiter.limit("5 per minute; 30 per hour", key_func=get_remote_address)
 def register():
     """Inscription d'un nouvel utilisateur."""
     data = request.get_json()
@@ -202,7 +227,23 @@ def register():
         cursor.close()
         conn.close()
 
+def _login_rate_key():
+    """Clé composite IP + email pour éviter le brute-force ciblé.
+
+    Quelqu'un qui tente plusieurs emails depuis une même IP sera déjà
+    limité par le quota IP ; en plus on bloque par email pour empêcher
+    une attaque distribuée sur un même compte.
+    """
+    try:
+        data = request.get_json(silent=True) or {}
+        email = (data.get('email') or '').strip().lower()
+    except Exception:
+        email = ''
+    return f"{get_remote_address()}|{email or '-'}"
+
+
 @app.route('/api/login', methods=['POST'])
+@limiter.limit("10 per minute; 100 per hour", key_func=_login_rate_key)
 def login():
     """Connexion d'un utilisateur."""
     data = request.get_json()
@@ -644,6 +685,7 @@ def update_user_profile(current_user_id):
         conn.close()
 
 @app.route('/api/user/change-password', methods=['PUT'])
+@limiter.limit("5 per minute; 30 per hour", key_func=get_remote_address)
 @token_required
 def change_password(current_user_id):
     """Change le mot de passe utilisateur."""

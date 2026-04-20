@@ -55,6 +55,11 @@ public partial class LoginPage : ContentPage
 					Preferences.Set("user_email", result.user.email);
 					Preferences.Set("user_username", result.user.username);
 					Preferences.Set("user_id", result.user.id);
+
+					// Persiste le token sur disque pour que les runners
+					// de scans planifiés (lancés par launchd/schtasks) s'authentifient.
+					try { SystemScheduler.PersistAuth(API_URL, result.token); }
+					catch { /* best-effort, n'empêche pas la connexion */ }
 					
 					// Navigation vers la page principale
 					await Navigation.PushAsync(new MainPage());
