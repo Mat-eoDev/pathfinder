@@ -1,4 +1,4 @@
-﻿<?xml version="1.0" encoding="utf-8" ?>
+<?xml version="1.0" encoding="utf-8" ?>
 <ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
              xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
              x:Class="PathFinder.MainPage"
@@ -94,7 +94,7 @@
                         </HorizontalStackLayout>
                     </Border>
                     
-                    <Label Text="PLAGE RÉSEAU À SCANNER" 
+                    <Label Text="CIBLE(S) — une par ligne : IP, hostname ou CIDR" 
                            FontSize="13" 
                            FontAttributes="Bold" 
                            TextColor="#8B5CF6"
@@ -107,27 +107,57 @@
                         <Border.StrokeShape>
                             <RoundRectangle CornerRadius="10"/>
                         </Border.StrokeShape>
-                        <Entry x:Name="TargetEntry"
-                               Text="192.168.1.0/24"
-                               Placeholder="Ex: 192.168.1.0/24"
-                               PlaceholderColor="#64748B"
-                               BackgroundColor="#1A1A2E"
-                               TextColor="#E2E8F0"
-                               FontSize="15"
-                               Margin="5" />
+                        <Editor x:Name="TargetEditor"
+                                Text="192.168.1.0/24"
+                                Placeholder="Ex : 192.168.1.0/24&#10;10.0.0.5&#10;exemple.local"
+                                PlaceholderColor="#64748B"
+                                BackgroundColor="#1A1A2E"
+                                TextColor="#E2E8F0"
+                                FontSize="14"
+                                HeightRequest="95"
+                                AutoSize="TextChanges"
+                                Margin="5" />
+                    </Border>
+
+                    <Label Text="MODE DE SCAN"
+                           FontSize="13" 
+                           FontAttributes="Bold" 
+                           TextColor="#8B5CF6"
+                           Margin="0,5,0,0" />
+
+                    <Border BackgroundColor="#0A0A0F" StrokeThickness="1" Stroke="#8B5CF6" Padding="12">
+                        <Border.StrokeShape><RoundRectangle CornerRadius="10"/></Border.StrokeShape>
+                        <Grid ColumnDefinitions="*,*" ColumnSpacing="12" RowDefinitions="Auto,Auto">
+                            <RadioButton Grid.Row="0" Grid.Column="0"
+                                         x:Name="ModeFastRadio"
+                                         GroupName="ScanMode"
+                                         Content="⚡ Rapide (~13 ports)"
+                                         IsChecked="True"
+                                         TextColor="#E2E8F0"
+                                         FontSize="14"/>
+                            <RadioButton Grid.Row="0" Grid.Column="1"
+                                         x:Name="ModeFullRadio"
+                                         GroupName="ScanMode"
+                                         Content="🔎 Complet (40+ ports)"
+                                         TextColor="#E2E8F0"
+                                         FontSize="14"/>
+                            <Label Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="2"
+                                   x:Name="ModeHintLabel"
+                                   Text="Rapide : services clés (FTP, SSH, HTTP, SMB, RDP…). Idéal pour un premier passage."
+                                   FontSize="11" TextColor="#64748B" Margin="0,6,0,0"/>
+                        </Grid>
                     </Border>
                     
                     <!-- Boutons d'action -->
-                    <Grid ColumnDefinitions="*,10,*" Margin="0,10,0,0">
-                        <!-- Bouton Scan moderne -->
+                    <Grid ColumnDefinitions="*,8,*,8,*" Margin="0,10,0,0">
                         <Button Grid.Column="0"
                                 x:Name="ScanButton"
                                 Text="🔍 SCANNER" 
-                                FontSize="15"
+                                FontSize="14"
                                 FontAttributes="Bold"
                                 TextColor="White"
                                 CornerRadius="12"
-                                HeightRequest="55"
+                                HeightRequest="52"
                                 Clicked="OnScanClicked">
                             <Button.Background>
                                 <LinearGradientBrush StartPoint="0,0" EndPoint="1,0">
@@ -135,43 +165,81 @@
                                     <GradientStop Color="#8B5CF6" Offset="1.0" />
                                 </LinearGradientBrush>
                             </Button.Background>
-                            <Button.Shadow>
-                                <Shadow Brush="#8B5CF6" Opacity="0.5" Radius="10" Offset="0,4" />
-                            </Button.Shadow>
                         </Button>
-                        
-                        <!-- Bouton Export PDF -->
+
                         <Button Grid.Column="2"
+                                x:Name="ScheduleButton"
+                                Text="📅 PROGRAMMER"
+                                FontSize="13"
+                                FontAttributes="Bold"
+                                TextColor="White"
+                                BackgroundColor="#8B5CF6"
+                                CornerRadius="12"
+                                HeightRequest="52"
+                                Clicked="OnScheduleClicked"/>
+                        
+                        <Button Grid.Column="4"
                                 x:Name="ExportButton"
-                                Text="📄 EXPORT PDF" 
-                                FontSize="15"
+                                Text="📄 EXPORT" 
+                                FontSize="13"
                                 FontAttributes="Bold"
                                 TextColor="White"
                                 BackgroundColor="#10B981"
                                 CornerRadius="12"
-                                HeightRequest="55"
+                                HeightRequest="52"
                                 Clicked="OnExportClicked"
-                                IsEnabled="False">
-                            <Button.Shadow>
-                                <Shadow Brush="#10B981" Opacity="0.5" Radius="10" Offset="0,4" />
-                            </Button.Shadow>
-                        </Button>
+                                IsEnabled="False"/>
                     </Grid>
                     
-                    <!-- Status avec animation -->
+                    <!-- Status -->
                     <Border BackgroundColor="#1A1A2E" 
                             Padding="12"
                             StrokeThickness="0"
                             Margin="0,5,0,0">
-                        <Border.StrokeShape>
-                            <RoundRectangle CornerRadius="8"/>
-                        </Border.StrokeShape>
+                        <Border.StrokeShape><RoundRectangle CornerRadius="8"/></Border.StrokeShape>
                         <Label x:Name="StatusLabel"
                                Text="⚡ Initialisation..." 
                                FontSize="13" 
                                TextColor="#94A3B8" 
                                HorizontalOptions="Center"
                                VerticalOptions="Center" />
+                    </Border>
+
+                    <!-- Cibles invalides -->
+                    <Border x:Name="InvalidTargetsPanel"
+                            IsVisible="False"
+                            BackgroundColor="#3F1D1D"
+                            Stroke="#EF4444" StrokeThickness="1"
+                            Padding="12">
+                        <Border.StrokeShape><RoundRectangle CornerRadius="8"/></Border.StrokeShape>
+                        <VerticalStackLayout Spacing="4">
+                            <Label Text="⚠️ Cibles ignorées (format invalide)" FontSize="12" FontAttributes="Bold" TextColor="#FCA5A5"/>
+                            <Label x:Name="InvalidTargetsLabel" FontSize="12" TextColor="#FECACA"/>
+                        </VerticalStackLayout>
+                    </Border>
+
+                    <!-- Progression en temps réel -->
+                    <Border x:Name="ProgressPanel"
+                            IsVisible="False"
+                            BackgroundColor="#0F172A"
+                            Stroke="#06B6D4" StrokeThickness="1"
+                            Padding="14">
+                        <Border.StrokeShape><RoundRectangle CornerRadius="10"/></Border.StrokeShape>
+                        <VerticalStackLayout Spacing="8">
+                            <HorizontalStackLayout Spacing="10">
+                                <Label x:Name="ProgressStatusIcon" Text="⏳" FontSize="18"/>
+                                <Label x:Name="ProgressTitleLabel" Text="Scan en cours…"
+                                       FontSize="14" FontAttributes="Bold" TextColor="#06B6D4"
+                                       VerticalOptions="Center"/>
+                            </HorizontalStackLayout>
+                            <ProgressBar x:Name="ProgressBarUI" Progress="0" ProgressColor="#06B6D4" HeightRequest="6"/>
+                            <Label x:Name="ProgressDetailsLabel"
+                                   Text=""
+                                   FontSize="12" TextColor="#94A3B8"/>
+                            <Label x:Name="ProgressElapsedLabel"
+                                   Text=""
+                                   FontSize="11" TextColor="#64748B"/>
+                        </VerticalStackLayout>
                     </Border>
                 </VerticalStackLayout>
             </Border>

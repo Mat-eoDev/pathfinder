@@ -209,7 +209,10 @@ def create_scan(current_user_id):
     
     network_range = data.get('network_range')
     results = data.get('results', [])
-    
+    mode = data.get('mode', 'fast')
+    if mode not in ('fast', 'full'):
+        mode = 'fast'
+
     if not network_range or not results:
         return jsonify({'message': 'network_range et results requis'}), 400
     
@@ -230,10 +233,10 @@ def create_scan(current_user_id):
         # Insérer le scan
         cursor.execute(
             """INSERT INTO scans 
-            (user_id, network_range, total_hosts, alive_hosts, critical_hosts, high_risk_hosts, scan_date)
-            VALUES (%s, %s, %s, %s, %s, %s, %s)""",
+            (user_id, network_range, total_hosts, alive_hosts, critical_hosts, high_risk_hosts, scan_date, mode)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)""",
             (current_user_id, network_range, total_hosts, alive_count, 
-             critical_count, high_risk_count, datetime.datetime.now())
+             critical_count, high_risk_count, datetime.datetime.now(), mode)
         )
         scan_id = cursor.lastrowid
         
@@ -1300,13 +1303,26 @@ def serve_static(path):
         return f"Erreur: {e}<br>Path: {frontend_path}/{path}", 404
 
 # ========== ROUTES PENTEST (Admin Mode) ==========
-
-PENTEST_CODE = '123jetebz'
+# L'accès aux routes pentest est réservé aux comptes dont le JWT contient role='admin'.
+# La variable d'environnement PATHFINDER_PENTEST_CODE peut éventuellement être définie pour
+# exiger un second facteur (header X-Pentest-Code) en plus du rôle admin.
+PENTEST_CODE = os.environ.get('PATHFINDER_PENTEST_CODE')
 
 def verify_pentest_access():
-    """Vérifie que le code pentest est correct."""
-    pentest_code = request.headers.get('X-Pentest-Code')
-    if pentest_code != PENTEST_CODE:
+    """Autorise uniquement les utilisateurs admin (role JWT == 'admin').
+    Si PATHFINDER_PENTEST_CODE est défini, exige en plus le header X-Pentest-Code correspondant."""
+    token = request.headers.get('Authorization', '')
+    if token.startswith('Bearer '):
+        token = token[7:]
+    if not token:
+        return False
+    try:
+        data = jwt.decode(token, app.config['SECRET_KEY'], algorithms=["HS256"])
+    except jwt.PyJWTError:
+        return False
+    if data.get('role') != 'admin':
+        return False
+    if PENTEST_CODE and request.headers.get('X-Pentest-Code') != PENTEST_CODE:
         return False
     return True
 
@@ -1315,7 +1331,7 @@ def verify_pentest_access():
 def pentest_portscan(current_user_id):
     """Scan de ports agressif (mode pentest)."""
     if not verify_pentest_access():
-        return jsonify({'message': 'Code pentest invalide'}), 403
+        return jsonify({'message': 'Accès admin requis'}), 403
     
     data = request.get_json()
     target = data.get('target')
@@ -1335,7 +1351,7 @@ def pentest_portscan(current_user_id):
 def pentest_bruteforce(current_user_id):
     """Bruteforce SSH (mode pentest)."""
     if not verify_pentest_access():
-        return jsonify({'message': 'Code pentest invalide'}), 403
+        return jsonify({'message': 'Accès admin requis'}), 403
     
     data = request.get_json()
     ip = data.get('ip')
@@ -1358,7 +1374,7 @@ def pentest_bruteforce(current_user_id):
 def pentest_dirbust(current_user_id):
     """Directory busting (mode pentest)."""
     if not verify_pentest_access():
-        return jsonify({'message': 'Code pentest invalide'}), 403
+        return jsonify({'message': 'Accès admin requis'}), 403
     
     data = request.get_json()
     target = data.get('target')
@@ -1379,7 +1395,7 @@ def pentest_dirbust(current_user_id):
 def pentest_cve_scan(current_user_id):
     """Scanner CVE (mode pentest)."""
     if not verify_pentest_access():
-        return jsonify({'message': 'Code pentest invalide'}), 403
+        return jsonify({'message': 'Accès admin requis'}), 403
     
     data = request.get_json()
     target = data.get('target')
@@ -1399,7 +1415,7 @@ def pentest_cve_scan(current_user_id):
 def pentest_exploit_test(current_user_id):
     """Test d'exploit (détection uniquement, pas d'exploitation réelle)."""
     if not verify_pentest_access():
-        return jsonify({'message': 'Code pentest invalide'}), 403
+        return jsonify({'message': 'Accès admin requis'}), 403
     
     data = request.get_json()
     target = data.get('target')
@@ -1420,7 +1436,7 @@ def pentest_exploit_test(current_user_id):
 def pentest_network_map(current_user_id):
     """Cartographie réseau complète."""
     if not verify_pentest_access():
-        return jsonify({'message': 'Code pentest invalide'}), 403
+        return jsonify({'message': 'Accès admin requis'}), 403
     
     data = request.get_json()
     network_range = data.get('network_range')
@@ -1440,7 +1456,7 @@ def pentest_network_map(current_user_id):
 def pentest_advanced_scan(current_user_id):
     """Scan avancé avec options."""
     if not verify_pentest_access():
-        return jsonify({'message': 'Code pentest invalide'}), 403
+        return jsonify({'message': 'Accès admin requis'}), 403
     
     data = request.get_json()
     network_range = data.get('network_range')
@@ -1464,7 +1480,7 @@ def pentest_advanced_scan(current_user_id):
 def pentest_hash_crack(current_user_id):
     """Cracker un hash avec wordlist massive."""
     if not verify_pentest_access():
-        return jsonify({'message': 'Code pentest invalide'}), 403
+        return jsonify({'message': 'Accès admin requis'}), 403
     
     data = request.get_json()
     hash_value = data.get('hash')
@@ -1487,7 +1503,7 @@ def pentest_hash_crack(current_user_id):
 def pentest_reverse_dns(current_user_id):
     """Reverse DNS lookup."""
     if not verify_pentest_access():
-        return jsonify({'message': 'Code pentest invalide'}), 403
+        return jsonify({'message': 'Accès admin requis'}), 403
     
     data = request.get_json()
     ip = data.get('ip')
@@ -1507,7 +1523,7 @@ def pentest_reverse_dns(current_user_id):
 def pentest_whois(current_user_id):
     """WHOIS lookup."""
     if not verify_pentest_access():
-        return jsonify({'message': 'Code pentest invalide'}), 403
+        return jsonify({'message': 'Accès admin requis'}), 403
     
     data = request.get_json()
     target = data.get('target')
@@ -1527,7 +1543,7 @@ def pentest_whois(current_user_id):
 def pentest_packet_capture_start(current_user_id):
     """Démarrer capture de paquets."""
     if not verify_pentest_access():
-        return jsonify({'message': 'Code pentest invalide'}), 403
+        return jsonify({'message': 'Accès admin requis'}), 403
     
     data = request.get_json()
     interface = data.get('interface', 'en0')
@@ -1545,7 +1561,7 @@ def pentest_packet_capture_start(current_user_id):
 def pentest_packet_capture_stop(current_user_id):
     """Arrêter capture de paquets."""
     if not verify_pentest_access():
-        return jsonify({'message': 'Code pentest invalide'}), 403
+        return jsonify({'message': 'Accès admin requis'}), 403
     
     data = request.get_json()
     capture_id = data.get('capture_id')
@@ -1565,7 +1581,7 @@ def pentest_packet_capture_stop(current_user_id):
 def pentest_mac_spoof(current_user_id):
     """MAC spoofing."""
     if not verify_pentest_access():
-        return jsonify({'message': 'Code pentest invalide'}), 403
+        return jsonify({'message': 'Accès admin requis'}), 403
     
     data = request.get_json()
     interface = data.get('interface', 'en0')
@@ -1583,7 +1599,7 @@ def pentest_mac_spoof(current_user_id):
 def pentest_mac_reset(current_user_id):
     """Reset MAC address."""
     if not verify_pentest_access():
-        return jsonify({'message': 'Code pentest invalide'}), 403
+        return jsonify({'message': 'Accès admin requis'}), 403
     
     data = request.get_json()
     interface = data.get('interface', 'en0')
@@ -1600,7 +1616,7 @@ def pentest_mac_reset(current_user_id):
 def pentest_bandwidth_monitor(current_user_id):
     """Monitoring de bande passante."""
     if not verify_pentest_access():
-        return jsonify({'message': 'Code pentest invalide'}), 403
+        return jsonify({'message': 'Accès admin requis'}), 403
     
     data = request.get_json()
     interface = data.get('interface', 'en0')
@@ -1626,6 +1642,22 @@ if __name__ == '__main__':
         print("⚠️  Mode DEBUG activé - Ne pas utiliser en production !")
     else:
         print("✅ Mode PRODUCTION - Utiliser wsgi.py avec serveur web en production")
-    
+
+    # Migration légère : colonne `mode` sur scans (pour que MAUI puisse persister fast/full)
+    _conn = get_db_connection()
+    if _conn:
+        try:
+            _c = _conn.cursor()
+            _c.execute("SHOW COLUMNS FROM scans LIKE 'mode'")
+            if not _c.fetchone():
+                _c.execute("ALTER TABLE scans ADD COLUMN mode VARCHAR(20) DEFAULT 'fast'")
+                _conn.commit()
+                print('[DB] Colonne scans.mode ajoutée')
+            _c.close()
+        except Error as e:
+            print(f'[DB] Erreur migration mode: {e}')
+        finally:
+            _conn.close()
+
     app.run(debug=DEBUG_MODE, host='0.0.0.0', port=PORT)
 

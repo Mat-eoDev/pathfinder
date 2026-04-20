@@ -1,0 +1,116 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             x:Class="PathFinder.ScheduledScansPage"
+             Title="Scans programmés"
+             BackgroundColor="#0A0A0F">
+
+    <ScrollView>
+        <VerticalStackLayout Padding="20" Spacing="20">
+
+            <!-- En-tête -->
+            <Border StrokeThickness="0" BackgroundColor="#1A1A2E" Padding="20">
+                <Border.StrokeShape><RoundRectangle CornerRadius="16"/></Border.StrokeShape>
+                <VerticalStackLayout Spacing="6">
+                    <Label Text="📅 Scans programmés" FontSize="24" FontAttributes="Bold" TextColor="#06B6D4"/>
+                    <Label Text="Les scans planifiés tournent automatiquement tant que l'application est ouverte."
+                           FontSize="13" TextColor="#94A3B8"/>
+                </VerticalStackLayout>
+            </Border>
+
+            <!-- Formulaire -->
+            <Border StrokeThickness="2" Stroke="#8B5CF6" BackgroundColor="#16213E" Padding="20">
+                <Border.StrokeShape><RoundRectangle CornerRadius="14"/></Border.StrokeShape>
+                <VerticalStackLayout Spacing="12">
+                    <Label x:Name="FormTitleLabel" Text="➕ Nouveau scan programmé"
+                           FontSize="16" FontAttributes="Bold" TextColor="#E2E8F0"/>
+
+                    <Label Text="Cible(s) (une par ligne)" FontSize="12" TextColor="#8B5CF6" FontAttributes="Bold"/>
+                    <Border BackgroundColor="#0A0A0F" Stroke="#8B5CF6" StrokeThickness="1" Padding="3">
+                        <Border.StrokeShape><RoundRectangle CornerRadius="8"/></Border.StrokeShape>
+                        <Editor x:Name="TargetsEditor"
+                                HeightRequest="90"
+                                BackgroundColor="#1A1A2E"
+                                TextColor="#E2E8F0"
+                                Placeholder="192.168.1.0/24"
+                                PlaceholderColor="#64748B"
+                                FontSize="14"
+                                Margin="5"/>
+                    </Border>
+
+                    <Grid ColumnDefinitions="*,*" ColumnSpacing="10">
+                        <VerticalStackLayout Grid.Column="0" Spacing="4">
+                            <Label Text="Mode" FontSize="12" TextColor="#8B5CF6" FontAttributes="Bold"/>
+                            <Picker x:Name="ModePicker" TextColor="#E2E8F0" BackgroundColor="#1A1A2E">
+                                <Picker.Items>
+                                    <x:String>⚡ Rapide</x:String>
+                                    <x:String>🔎 Complet</x:String>
+                                </Picker.Items>
+                            </Picker>
+                        </VerticalStackLayout>
+                        <VerticalStackLayout Grid.Column="1" Spacing="4">
+                            <Label Text="Fréquence" FontSize="12" TextColor="#8B5CF6" FontAttributes="Bold"/>
+                            <Picker x:Name="FrequencyPicker" TextColor="#E2E8F0" BackgroundColor="#1A1A2E"
+                                    SelectedIndexChanged="OnFrequencyChanged">
+                                <Picker.Items>
+                                    <x:String>Toutes les heures</x:String>
+                                    <x:String>Quotidien</x:String>
+                                    <x:String>Hebdomadaire</x:String>
+                                </Picker.Items>
+                            </Picker>
+                        </VerticalStackLayout>
+                    </Grid>
+
+                    <Grid ColumnDefinitions="*,*" ColumnSpacing="10" x:Name="TimeRow">
+                        <VerticalStackLayout Grid.Column="0" Spacing="4">
+                            <Label Text="Heure" FontSize="12" TextColor="#8B5CF6" FontAttributes="Bold"/>
+                            <TimePicker x:Name="TimePickerUI" TextColor="#E2E8F0" BackgroundColor="#1A1A2E" Time="03:00:00"/>
+                        </VerticalStackLayout>
+                        <VerticalStackLayout Grid.Column="1" Spacing="4" x:Name="DayOfWeekCol">
+                            <Label Text="Jour de la semaine" FontSize="12" TextColor="#8B5CF6" FontAttributes="Bold"/>
+                            <Picker x:Name="DayOfWeekPicker" TextColor="#E2E8F0" BackgroundColor="#1A1A2E">
+                                <Picker.Items>
+                                    <x:String>Dimanche</x:String>
+                                    <x:String>Lundi</x:String>
+                                    <x:String>Mardi</x:String>
+                                    <x:String>Mercredi</x:String>
+                                    <x:String>Jeudi</x:String>
+                                    <x:String>Vendredi</x:String>
+                                    <x:String>Samedi</x:String>
+                                </Picker.Items>
+                            </Picker>
+                        </VerticalStackLayout>
+                    </Grid>
+
+                    <HorizontalStackLayout Spacing="10">
+                        <CheckBox x:Name="EnabledCheck" IsChecked="True" Color="#10B981"/>
+                        <Label Text="Activer" TextColor="#E2E8F0" VerticalOptions="Center"/>
+                    </HorizontalStackLayout>
+
+                    <Grid ColumnDefinitions="*,*" ColumnSpacing="10">
+                        <Button Grid.Column="0" x:Name="SaveButton" Text="💾 Enregistrer"
+                                BackgroundColor="#10B981" TextColor="White" CornerRadius="10"
+                                HeightRequest="48" FontAttributes="Bold" Clicked="OnSaveClicked"/>
+                        <Button Grid.Column="1" x:Name="CancelButton" Text="✖ Annuler"
+                                BackgroundColor="#334155" TextColor="White" CornerRadius="10"
+                                HeightRequest="48" Clicked="OnCancelClicked" IsVisible="False"/>
+                    </Grid>
+                </VerticalStackLayout>
+            </Border>
+
+            <!-- Liste -->
+            <Border StrokeThickness="2" Stroke="#06B6D4" BackgroundColor="#16213E" Padding="18">
+                <Border.StrokeShape><RoundRectangle CornerRadius="14"/></Border.StrokeShape>
+                <VerticalStackLayout Spacing="10">
+                    <Label Text="🗓️ Planifications actives" FontSize="16" FontAttributes="Bold" TextColor="#06B6D4"/>
+                    <VerticalStackLayout x:Name="SchedulesList" Spacing="10"/>
+                    <Label x:Name="EmptyLabel"
+                           Text="Aucun scan programmé pour l'instant."
+                           TextColor="#64748B" FontAttributes="Italic" FontSize="13"
+                           IsVisible="False"/>
+                </VerticalStackLayout>
+            </Border>
+
+        </VerticalStackLayout>
+    </ScrollView>
+</ContentPage>

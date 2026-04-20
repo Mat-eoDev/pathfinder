@@ -1,4 +1,4 @@
-﻿using System.Diagnostics;
+using System.Diagnostics;
 using System.Net;
 using System.Net.NetworkInformation;
 using System.Net.Sockets;
@@ -15,6 +15,11 @@ public partial class MainPage : ContentPage
 	private JsonArray? lastScanData = null;
 	private const string API_URL = "http://localhost:5001/api";
 	private readonly HttpClient httpClient;
+	private bool _scanInProgress = false;
+
+	// Liste de ports par mode
+	private static readonly string FAST_PORTS = "21,22,23,25,53,80,110,139,143,443,445,3389,8080";
+	private static readonly string FULL_PORTS = "20,21,22,23,25,53,80,110,111,135,139,143,443,445,465,587,993,995,1433,1521,3306,3389,5000,5001,5432,5900,5985,5986,6379,8000,8080,8443,8888,9090,9200,27017,27018,50000";
 	
 	public MainPage()
 	{
@@ -47,6 +52,10 @@ public partial class MainPage : ContentPage
 			
 			Debug.WriteLine("✅ MainPage: Headers configurés");
 			
+			// Enregistrer cette instance comme gestionnaire des scans programmés (remplace toute instance précédente)
+			ScheduleService.OnScanDue = OnScheduleDue;
+			ScheduleService.Start();
+
 			// Lancer la détection et le scan automatiquement au démarrage
 			_ = InitializeAndAutoScan();
 		}
@@ -102,33 +111,23 @@ public partial class MainPage : ContentPage
 			
 			if (!string.IsNullOrEmpty(localIp))
 			{
-				// Afficher l'IP locale détectée
 				LocalIPLabel.Text = $"Votre IP : {localIp}";
-				
-				// Calculer le réseau CIDR à partir de l'IP locale
 				var networkRange = GetNetworkRange(localIp);
-				TargetEntry.Text = networkRange;
-				
-				StatusLabel.Text = $"✅ Réseau {networkRange} détecté - Scan automatique en cours...";
-				
-				// Attendre un court instant pour que l'utilisateur puisse voir le message
-				await Task.Delay(1500);
-				
-				// Lancer le scan automatiquement
-				await PerformScan();
+				TargetEditor.Text = networkRange;
+				StatusLabel.Text = $"✅ Réseau {networkRange} détecté — prêt à scanner";
 			}
 			else
 			{
 				LocalIPLabel.Text = "⚠️ Détection automatique échouée";
-				StatusLabel.Text = "⚠️ Veuillez entrer manuellement la plage réseau à scanner";
-				TargetEntry.Text = "192.168.1.0/24";
+				StatusLabel.Text = "⚠️ Saisissez manuellement la plage réseau à scanner";
+				TargetEditor.Text = "192.168.1.0/24";
 			}
 		}
 		catch (Exception ex)
 		{
 			LocalIPLabel.Text = "❌ Erreur de détection";
 			StatusLabel.Text = $"❌ Erreur d'initialisation : {ex.Message}";
-			TargetEntry.Text = "192.168.1.0/24";
+			TargetEditor.Text = "192.168.1.0/24";
 		}
 	}
 
@@ -234,101 +233,221 @@ public partial class MainPage : ContentPage
 
 	private async void OnScanClicked(object sender, EventArgs e)
 	{
-		await PerformScan();
+		var mode = ModeFullRadio.IsChecked ? ScanMode.Full : ScanMode.Fast;
+		var rawTargets = TargetEditor.Text ?? "";
+		await PerformScan(rawTargets, mode);
 	}
 
-	private async Task PerformScan()
+	private async void OnScheduleClicked(object sender, EventArgs e)
 	{
-		Debug.WriteLine("🔍 PerformScan: Début du scan");
-		
-		StatusLabel.Text = "⚡ Analyse du réseau en cours...";
+		await Navigation.PushAsync(new ScheduledScansPage());
+	}
+
+	private async void OnScheduleDue(ScheduledScan schedule)
+	{
+		if (_scanInProgress)
+		{
+			Debug.WriteLine($"🕒 Scheduler: scan en cours, report de {schedule.Id}");
+			return;
+		}
+		Debug.WriteLine($"🕒 Scheduler: lancement scan programmé ({schedule.Targets})");
+		await PerformScan(schedule.Targets, schedule.Mode, isScheduled: true);
+	}
+
+	private List<string> ParseAndValidateTargets(string raw, out List<string> invalid)
+	{
+		invalid = new List<string>();
+		var valid = new List<string>();
+		if (string.IsNullOrWhiteSpace(raw)) return valid;
+
+		var entries = raw.Split(new[] { '\n', '\r', ',', ';' }, StringSplitOptions.RemoveEmptyEntries)
+			.Select(s => s.Trim())
+			.Where(s => s.Length > 0)
+			.Distinct()
+			.ToList();
+
+		foreach (var entry in entries)
+		{
+			if (IsValidTarget(entry)) valid.Add(entry);
+			else invalid.Add(entry);
+		}
+		return valid;
+	}
+
+	private static bool IsValidTarget(string entry)
+	{
+		if (string.IsNullOrWhiteSpace(entry)) return false;
+
+		// CIDR : a.b.c.d/NN
+		var slash = entry.IndexOf('/');
+		if (slash > 0)
+		{
+			var ipPart = entry.Substring(0, slash);
+			var maskPart = entry.Substring(slash + 1);
+			if (!IPAddress.TryParse(ipPart, out _)) return false;
+			if (!int.TryParse(maskPart, out var mask)) return false;
+			return mask >= 0 && mask <= 32;
+		}
+
+		// IP ou hostname : on accepte si parse IP OK, ou si format hostname plausible
+		if (IPAddress.TryParse(entry, out _)) return true;
+		if (System.Text.RegularExpressions.Regex.IsMatch(entry, @"^[a-zA-Z0-9]([a-zA-Z0-9\-\.]*[a-zA-Z0-9])?$") && entry.Length <= 253)
+			return true;
+		return false;
+	}
+
+	private async Task PerformScan(string rawTargets, ScanMode mode, bool isScheduled = false)
+	{
+		if (_scanInProgress)
+		{
+			if (!isScheduled)
+				await DisplayAlert("Scan en cours", "Un scan est déjà en cours. Veuillez patienter.", "OK");
+			return;
+		}
+
+		var targets = ParseAndValidateTargets(rawTargets, out var invalid);
+
+		if (invalid.Count > 0)
+		{
+			InvalidTargetsPanel.IsVisible = true;
+			InvalidTargetsLabel.Text = string.Join(", ", invalid);
+		}
+		else
+		{
+			InvalidTargetsPanel.IsVisible = false;
+		}
+
+		if (targets.Count == 0)
+		{
+			StatusLabel.Text = "⚠️ Aucune cible valide à scanner";
+			if (!isScheduled)
+				await DisplayAlert("Cibles invalides", "Aucune cible valide trouvée. Vérifiez le format (IP, CIDR ou hostname).", "OK");
+			return;
+		}
+
+		_scanInProgress = true;
 		ScanButton.IsEnabled = false;
-		ScanButton.Text = "⏳ SCAN EN COURS...";
-		
+		ScanButton.Text = "⏳ SCAN EN COURS";
+		ExportButton.IsEnabled = false;
+
+		ProgressPanel.IsVisible = true;
+		ProgressBarUI.Progress = 0;
+		ProgressStatusIcon.Text = "⏳";
+		ProgressTitleLabel.Text = isScheduled ? "Scan programmé en cours…" : "Scan en cours…";
+		ProgressDetailsLabel.Text = $"Préparation de {targets.Count} cible(s) — mode {(mode == ScanMode.Full ? "Complet" : "Rapide")}";
+		ProgressElapsedLabel.Text = "⏱ 0s";
+
+		var sw = Stopwatch.StartNew();
+		using var elapsedTimer = new System.Threading.Timer(_ =>
+		{
+			MainThread.BeginInvokeOnMainThread(() =>
+			{
+				if (ProgressPanel.IsVisible)
+					ProgressElapsedLabel.Text = $"⏱ {FormatElapsed(sw.Elapsed)}";
+			});
+		}, null, 1000, 1000);
+
+		var combinedResultsText = new StringBuilder();
+		int successCount = 0;
+		int failCount = 0;
+
 		try
 		{
-			var target = TargetEntry.Text;
-			if (string.IsNullOrEmpty(target))
+			for (int i = 0; i < targets.Count; i++)
 			{
-				Debug.WriteLine("⚠️ PerformScan: Pas de cible spécifiée");
-				StatusLabel.Text = "⚠️ Veuillez saisir une plage réseau valide";
-				ScanButton.IsEnabled = true;
-				ScanButton.Text = "🔍 LANCER LE SCAN";
-				return;
+				var target = targets[i];
+				ProgressTitleLabel.Text = $"🎯 Scan {i + 1}/{targets.Count} — {target}";
+				ProgressDetailsLabel.Text = $"Mode {(mode == ScanMode.Full ? "Complet" : "Rapide")} • {successCount} succès • {failCount} échec(s)";
+				ProgressBarUI.Progress = (double)i / targets.Count;
+				ResultsLabel.Text = combinedResultsText.Length == 0
+					? $"⏳ Scan en cours sur {target}…"
+					: combinedResultsText.ToString() + $"\n\n⏳ Scan en cours sur {target}…";
+
+				try
+				{
+					var text = await RunNetworkScan(target, mode);
+					var targetData = lastScanData;
+
+					combinedResultsText.AppendLine($"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+					combinedResultsText.AppendLine($"🎯 CIBLE : {target}  ({(mode == ScanMode.Full ? "Complet" : "Rapide")})");
+					combinedResultsText.AppendLine($"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+					combinedResultsText.AppendLine(text);
+					combinedResultsText.AppendLine();
+
+					if (targetData != null)
+					{
+						try
+						{
+							await SendScanToAPI(targetData, target, mode);
+						}
+						catch (Exception apiEx)
+						{
+							Debug.WriteLine($"⚠️ API send error for {target}: {apiEx.Message}");
+							combinedResultsText.AppendLine($"⚠️ Envoi API échoué pour {target} : {apiEx.Message}");
+						}
+					}
+
+					successCount++;
+				}
+				catch (Exception ex)
+				{
+					failCount++;
+					combinedResultsText.AppendLine($"❌ Erreur sur {target} : {ex.Message}\n");
+				}
+
+				ResultsLabel.Text = combinedResultsText.ToString();
 			}
 
-			Debug.WriteLine($"🎯 PerformScan: Cible = {target}");
+			sw.Stop();
+			ProgressBarUI.Progress = 1;
+			ProgressStatusIcon.Text = failCount == 0 ? "✅" : (successCount > 0 ? "⚠️" : "❌");
+			ProgressTitleLabel.Text = failCount == 0 ? "Scan terminé" : (successCount > 0 ? "Scan terminé avec avertissements" : "Scan échoué");
+			ProgressDetailsLabel.Text = $"{successCount} succès • {failCount} échec(s) sur {targets.Count} cible(s)";
+			ProgressElapsedLabel.Text = $"⏱ Durée totale : {FormatElapsed(sw.Elapsed)}";
 
-			ResultsLabel.Text = "⏳ Analyse en cours...\n\n" +
-			                   "🔍 Détection des hôtes actifs\n" +
-			                   "🔓 Scan des ports ouverts\n" +
-			                   "🌐 Identification des services\n" +
-			                   "🔒 Analyse des certificats SSL\n\n" +
-			                   "⚡ Veuillez patienter...";
-			
-			// Lancer le scan Python
-			Debug.WriteLine("🐍 PerformScan: Lancement script Python");
-			var results = await RunNetworkScan(target);
-			
-			Debug.WriteLine($"✅ PerformScan: Résultats reçus ({results.Length} caractères)");
-			
-			// Afficher les résultats
-			ResultsLabel.Text = results;
-			StatusLabel.Text = "✅ Analyse terminée avec succès";
-			
-			// Sauvegarder pour l'export
-			lastScanResults = results;
-			lastNetworkRange = target;
-			
-			// Activer le bouton d'export
-			ExportButton.IsEnabled = true;
-			
-			// Envoyer les résultats à l'API
-			try
-			{
-				Debug.WriteLine("📤 PerformScan: Envoi à l'API");
-				await SendScanToAPI(lastScanData, target);
-				StatusLabel.Text = "✅ Analyse terminée - Résultats envoyés au dashboard";
-				Debug.WriteLine("✅ PerformScan: Envoi API réussi");
-			}
-			catch (Exception apiEx)
-			{
-				Debug.WriteLine($"⚠️ PerformScan: Erreur API - {apiEx.Message}");
-				StatusLabel.Text = $"⚠️ Analyse OK mais erreur envoi API: {apiEx.Message}";
-			}
+			StatusLabel.Text = $"✅ {successCount}/{targets.Count} scan(s) terminé(s) en {FormatElapsed(sw.Elapsed)}";
+
+			lastScanResults = combinedResultsText.ToString();
+			lastNetworkRange = targets.Count == 1 ? targets[0] : $"{targets.Count} cibles";
+			if (successCount > 0) ExportButton.IsEnabled = true;
 		}
 		catch (Exception ex)
 		{
-			Debug.WriteLine($"❌ ERREUR PerformScan: {ex.Message}");
-			Debug.WriteLine($"   Stack: {ex.StackTrace}");
-			
-			ResultsLabel.Text = $"❌ ERREUR D'ANALYSE\n\n{ex.Message}\n\nStack:\n{ex.StackTrace}";
-			StatusLabel.Text = "❌ Échec de l'analyse réseau";
-			
-			await DisplayAlert("Erreur de Scan", 
-				$"Une erreur est survenue pendant le scan:\n\n{ex.Message}", 
-				"OK");
+			Debug.WriteLine($"❌ PerformScan fatal: {ex.Message}");
+			StatusLabel.Text = "❌ Échec de l'analyse";
+			ProgressStatusIcon.Text = "❌";
+			ProgressTitleLabel.Text = "Scan interrompu";
+			ProgressDetailsLabel.Text = ex.Message;
+			if (!isScheduled)
+				await DisplayAlert("Erreur de Scan", ex.Message, "OK");
 		}
 		finally
 		{
+			_scanInProgress = false;
 			ScanButton.IsEnabled = true;
 			ScanButton.Text = "🔍 SCANNER";
-			Debug.WriteLine("🔍 PerformScan: Fin (finally)");
 		}
 	}
-	
-	private async Task SendScanToAPI(JsonArray? scanResults, string networkRange)
+
+	private static string FormatElapsed(TimeSpan ts)
+	{
+		if (ts.TotalSeconds < 60) return $"{(int)ts.TotalSeconds}s";
+		if (ts.TotalMinutes < 60) return $"{(int)ts.TotalMinutes}min {ts.Seconds:D2}s";
+		return $"{(int)ts.TotalHours}h {ts.Minutes:D2}min";
+	}
+
+	private async Task SendScanToAPI(JsonArray? scanResults, string networkRange, ScanMode mode)
 	{
 		try
 		{
-			// Convertir JsonArray en string JSON pour l'API
 			var resultsJson = scanResults?.ToJsonString() ?? "[]";
-			var payloadJson = $"{{\"network_range\":\"{networkRange}\",\"results\":{resultsJson}}}";
-			
+			var modeStr = mode == ScanMode.Full ? "full" : "fast";
+			var escapedRange = networkRange.Replace("\\", "\\\\").Replace("\"", "\\\"");
+			var payloadJson = $"{{\"network_range\":\"{escapedRange}\",\"mode\":\"{modeStr}\",\"results\":{resultsJson}}}";
+
 			var content = new StringContent(payloadJson, Encoding.UTF8, "application/json");
-			
 			var response = await httpClient.PostAsync($"{API_URL}/scans", content);
-			
+
 			if (!response.IsSuccessStatusCode)
 			{
 				var error = await response.Content.ReadAsStringAsync();
@@ -549,7 +668,7 @@ public partial class MainPage : ContentPage
 		return html;
 	}
 
-	private async Task<string> RunNetworkScan(string target)
+	private async Task<string> RunNetworkScan(string target, ScanMode mode)
 	{
 		try
 		{
@@ -594,10 +713,13 @@ public partial class MainPage : ContentPage
 				pythonPath = "python3"; // Dernier recours
 			}
 			
+			var ports = mode == ScanMode.Fast ? FAST_PORTS : FULL_PORTS;
+			var workers = mode == ScanMode.Fast ? 150 : 100;
+
 			var startInfo = new ProcessStartInfo
 			{
 				FileName = pythonPath,
-				Arguments = $"\"{scriptPath}\" \"{target}\" --workers 100",
+				Arguments = $"\"{scriptPath}\" \"{target}\" --workers {workers} --ports \"{ports}\"",
 				UseShellExecute = false,
 				RedirectStandardOutput = true,
 				RedirectStandardError = true,

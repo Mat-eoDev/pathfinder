@@ -193,6 +193,7 @@ function setupEventListeners() {
     document.getElementById('scan-modal').addEventListener('click', (e) => {
         if (e.target.id === 'scan-modal') closeModal();
     });
+
 }
 
 // ========== NAVIGATION ==========
@@ -548,24 +549,19 @@ function displayScansList(scans, showAdmin) {
 
 async function viewScanDetails(scanId) {
     try {
-        // Stocker le scan ID pour téléchargement script
         window.currentScanId = scanId;
-        
+
         const response = await fetch(`${API_URL}/scans/${scanId}`, {
             headers: { 'Authorization': `Bearer ${authToken}` }
         });
-        
+
         if (!response.ok) throw new Error('Erreur de chargement');
-        
+
         const data = await response.json();
-        
+
+        window.currentSecurityReport = data.security_report || null;
         displayScanDetails(data.scan);
-        
-        // Afficher les recommandations de sécurité
-        if (data.security_report) {
-            displaySecurityRecommendations(data.security_report);
-        }
-        
+
     } catch (error) {
         console.error('Erreur détails scan:', error);
     }
@@ -573,146 +569,240 @@ async function viewScanDetails(scanId) {
 
 function displayScanDetails(scan) {
     const detailsEl = document.getElementById('scan-details');
-    
-    // Stocker les hôtes pour le filtrage
-    window.currentScanHosts = scan.hosts || [];
-    
+    const hosts = scan.hosts || [];
+    window.currentScanHosts = hosts;
+
+    const report = window.currentSecurityReport;
+    const summary = (report && report.executive_summary) || {};
+    const score = (summary.score != null) ? summary.score : null;
+    const scoreClass = score == null ? 'muted' : score < 50 ? 'danger' : score < 75 ? 'warning' : 'success';
+    const grade = summary.grade || null;
+
+    const counts = {
+        total: hosts.length,
+        critical: hosts.filter(h => normalizeRisk(h.risk_level) === 'critical').length,
+        high: hosts.filter(h => normalizeRisk(h.risk_level) === 'high').length,
+        medium: hosts.filter(h => normalizeRisk(h.risk_level) === 'medium').length,
+        low: hosts.filter(h => normalizeRisk(h.risk_level) === 'low').length,
+        ports: hosts.reduce((sum, h) => sum + (h.open_ports || []).length, 0),
+    };
+
+    const remediationCount = report && Array.isArray(report.hosts_recommendations)
+        ? report.hosts_recommendations.reduce((sum, h) => sum + countHostActions(h), 0)
+        : 0;
+
+    const referencesCount = (report && (
+        (report.cve_summary || []).length +
+        ((report.compliance_summary && report.compliance_summary.frameworks_impacted) || []).length +
+        (report.network_wide_actions || []).length
+    )) || 0;
+
     detailsEl.innerHTML = `
-        <div style="margin-bottom: 30px;">
-            <h3 style="color: var(--primary); margin-bottom: 15px;">📊 Résumé du Scan</h3>
-            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 15px; margin-bottom: 20px;">
-                <div style="background: var(--dark); padding: 15px; border-radius: 10px;">
-                    <div style="font-size: 24px; font-weight: 600;">${scan.total_hosts || 0}</div>
-                    <div style="color: var(--text-muted); font-size: 14px;">Total hôtes scannés</div>
+        <div class="pf-scan-summary">
+            <div class="pf-summary-main">
+                <div class="pf-score pf-score-${scoreClass}">
+                    ${score != null ? `${score}<span class="pf-score-unit">/100</span>` : '—'}
                 </div>
-                <div style="background: var(--dark); padding: 15px; border-radius: 10px;">
-                    <div style="font-size: 24px; font-weight: 600; color: var(--success);">${scan.alive_hosts || 0}</div>
-                    <div style="color: var(--text-muted); font-size: 14px;">Hôtes actifs</div>
-                </div>
-                <div style="background: var(--dark); padding: 15px; border-radius: 10px;">
-                    <div style="font-size: 24px; font-weight: 600; color: var(--danger);">${scan.critical_hosts || 0}</div>
-                    <div style="color: var(--text-muted); font-size: 14px;">Hôtes critiques</div>
-                </div>
-                <div style="background: var(--dark); padding: 15px; border-radius: 10px;">
-                    <div style="font-size: 24px; font-weight: 600; color: var(--warning);">${scan.high_risk_hosts || 0}</div>
-                    <div style="color: var(--text-muted); font-size: 14px;">Risques élevés</div>
-                </div>
-                <div style="background: var(--dark); padding: 15px; border-radius: 10px;">
-                    <div style="font-size: 24px; font-weight: 600; color: var(--info);">${(scan.hosts || []).reduce((sum, h) => sum + (h.open_ports || []).length, 0)}</div>
-                    <div style="color: var(--text-muted); font-size: 14px;">Ports ouverts</div>
-                </div>
-                <div style="background: var(--dark); padding: 15px; border-radius: 10px;">
-                    <div style="font-size: 18px; font-weight: 600; color: var(--text-muted);">${scan.network_range || 'N/A'}</div>
-                    <div style="color: var(--text-muted); font-size: 14px;">Plage réseau</div>
+                <div class="pf-summary-meta">
+                    <div class="pf-summary-title">Score de sécurité${grade ? ` · Grade ${grade}` : ''}</div>
+                    <div class="pf-summary-sub">${scan.network_range || 'Plage inconnue'} · ${formatDate(scan.scan_date)}</div>
                 </div>
             </div>
-        </div>
-        
-        <!-- Barre de recherche -->
-        <div style="margin-bottom: 20px;">
-            <div style="position: relative;">
-                <input 
-                    type="text" 
-                    id="host-search" 
-                    placeholder="🔍 Rechercher par IP, hostname, OS, port..." 
-                    style="width: 100%; padding: 12px 45px 12px 15px; background: var(--dark); border: 1px solid var(--border); border-radius: 8px; color: var(--text); font-size: 14px;"
-                    oninput="filterHosts(this.value)"
-                />
-                <div id="search-count" style="position: absolute; right: 15px; top: 50%; transform: translateY(-50%); color: var(--text-muted); font-size: 13px;"></div>
+            <div class="pf-summary-stats">
+                <div class="pf-stat"><span class="pf-stat-num">${counts.total}</span><span class="pf-stat-lbl">Hôtes</span></div>
+                <div class="pf-stat pf-stat-danger"><span class="pf-stat-num">${counts.critical}</span><span class="pf-stat-lbl">Critiques</span></div>
+                <div class="pf-stat pf-stat-warning"><span class="pf-stat-num">${counts.high}</span><span class="pf-stat-lbl">Élevés</span></div>
+                <div class="pf-stat pf-stat-medium"><span class="pf-stat-num">${counts.medium}</span><span class="pf-stat-lbl">Moyens</span></div>
+                <div class="pf-stat pf-stat-success"><span class="pf-stat-num">${counts.low}</span><span class="pf-stat-lbl">Faibles</span></div>
+                <div class="pf-stat"><span class="pf-stat-num">${counts.ports}</span><span class="pf-stat-lbl">Ports ouverts</span></div>
             </div>
         </div>
-        
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
-            <h3 style="color: var(--primary); margin: 0;">🖥️ Hôtes Détectés</h3>
-            <div style="display: flex; gap: 10px;">
-                <button onclick="filterByRisk('all')" class="filter-btn active" data-filter="all">Tous (${(scan.hosts || []).length})</button>
-                <button onclick="filterByRisk('critical')" class="filter-btn" data-filter="critical">🔴 Critiques (${(scan.hosts || []).filter(h => (h.risk_level || '').toLowerCase() === 'critical').length})</button>
-                <button onclick="filterByRisk('high')" class="filter-btn" data-filter="high">🟠 Élevés (${(scan.hosts || []).filter(h => (h.risk_level || '').toLowerCase() === 'high').length})</button>
-                <button onclick="filterByRisk('medium')" class="filter-btn" data-filter="medium">🟡 Moyens (${(scan.hosts || []).filter(h => (h.risk_level || '').toLowerCase() === 'medium').length})</button>
-            </div>
+
+        <div class="pf-tabs" role="tablist">
+            <button class="pf-tab active" data-tab="hosts" onclick="switchScanTab('hosts')">🖥️ Hôtes <span class="pf-tab-count">${counts.total}</span></button>
+            <button class="pf-tab" data-tab="remediation" onclick="switchScanTab('remediation')">🛠️ Remédiation <span class="pf-tab-count">${remediationCount}</span></button>
+            <button class="pf-tab" data-tab="references" onclick="switchScanTab('references')">📚 Références <span class="pf-tab-count">${referencesCount}</span></button>
         </div>
-        
-        <div id="hosts-container"></div>
-        
-        <div id="security-recommendations" style="margin-top: 30px;"></div>
+
+        <div class="pf-tab-panel" data-panel="hosts">
+            <div class="pf-filterbar">
+                <div class="pf-filter-group pf-filter-grow">
+                    <label>🔍 Recherche</label>
+                    <input type="text" id="host-filter-search" placeholder="IP ou hostname" oninput="applyHostFilters()" />
+                </div>
+                <div class="pf-filter-group">
+                    <label>Port</label>
+                    <input type="number" id="host-filter-port" placeholder="ex: 445" min="1" max="65535" oninput="applyHostFilters()" />
+                </div>
+                <div class="pf-filter-group">
+                    <label>OS</label>
+                    <select id="host-filter-os" onchange="applyHostFilters()">
+                        <option value="all">Tous</option>
+                        <option value="windows">Windows</option>
+                        <option value="linux">Linux</option>
+                        <option value="macos">macOS</option>
+                        <option value="unknown">Inconnu</option>
+                    </select>
+                </div>
+                <div class="pf-filter-group">
+                    <label>Criticité</label>
+                    <select id="host-filter-risk" onchange="applyHostFilters()">
+                        <option value="all">Toutes</option>
+                        <option value="critical">Critique</option>
+                        <option value="high">Élevé</option>
+                        <option value="medium">Moyen</option>
+                        <option value="low">Faible</option>
+                    </select>
+                </div>
+                <label class="pf-filter-toggle">
+                    <input type="checkbox" id="host-filter-vuln" onchange="applyHostFilters()" />
+                    <span>Vulnérables uniquement</span>
+                </label>
+                <button type="button" class="pf-btn pf-btn-ghost" onclick="resetHostFilters()">↺ Réinitialiser</button>
+                <span class="pf-filter-count" id="search-count"></span>
+            </div>
+            <div id="hosts-container"></div>
+        </div>
+
+        <div class="pf-tab-panel" data-panel="remediation" hidden>
+            <div id="remediation-container"></div>
+        </div>
+
+        <div class="pf-tab-panel" data-panel="references" hidden>
+            <div id="references-container"></div>
+        </div>
     `;
-    
-    // Afficher les hôtes initialement
-    renderHosts(window.currentScanHosts);
-    
+
+    applyHostFilters();
+    renderRemediationTab(report);
+    renderReferencesTab(report);
+
     document.getElementById('scan-modal').style.display = 'flex';
 }
 
-function renderHosts(hosts, filterText = '', riskFilter = 'all') {
+function switchScanTab(name) {
+    document.querySelectorAll('.pf-tab').forEach(t => {
+        t.classList.toggle('active', t.dataset.tab === name);
+    });
+    document.querySelectorAll('.pf-tab-panel').forEach(p => {
+        p.hidden = p.dataset.panel !== name;
+    });
+}
+
+function countHostActions(hostRec) {
+    if (!hostRec) return 0;
+    const qw = (hostRec.quick_wins || []).length;
+    const ports = (hostRec.ports_analysis || []).length;
+    const strat = (hostRec.strategic_actions || []).length;
+    return qw + ports + strat;
+}
+
+const RISK_NORMALIZE = {
+    'critique': 'critical',
+    'critical': 'critical',
+    'élevé': 'high',
+    'eleve': 'high',
+    'high': 'high',
+    'moyen': 'medium',
+    'medium': 'medium',
+    'faible': 'low',
+    'low': 'low',
+    'info': 'info',
+    '': 'info',
+};
+
+function normalizeRisk(value) {
+    const v = (value || '').toString().toLowerCase();
+    return RISK_NORMALIZE[v] || v || 'info';
+}
+
+function normalizeOs(value) {
+    const v = (value || '').toString().toLowerCase();
+    if (!v) return 'unknown';
+    if (v.includes('windows') || v.includes('win ')) return 'windows';
+    if (v.includes('linux') || v.includes('ubuntu') || v.includes('debian') || v.includes('centos')) return 'linux';
+    if (v.includes('mac') || v.includes('darwin') || v.includes('osx')) return 'macos';
+    return 'unknown';
+}
+
+function hostHasVulnerability(host) {
+    const risk = normalizeRisk(host.risk_level);
+    if (risk === 'critical' || risk === 'high' || risk === 'medium') return true;
+    const score = Number(host.priority_score || 0);
+    if (score >= 40) return true;
+    const risky = new Set([21, 23, 135, 139, 445, 1433, 1521, 3306, 3389, 5900, 6379, 27017]);
+    return (host.open_ports || []).some(p => risky.has(Number(p)));
+}
+
+function applyHostFilters() {
+    const hosts = window.currentScanHosts || [];
+    const search = (document.getElementById('host-filter-search')?.value || '').trim().toLowerCase();
+    const portRaw = (document.getElementById('host-filter-port')?.value || '').trim();
+    const osFilter = document.getElementById('host-filter-os')?.value || 'all';
+    const riskFilter = document.getElementById('host-filter-risk')?.value || 'all';
+    const vulnOnly = !!document.getElementById('host-filter-vuln')?.checked;
+    const portFilter = portRaw ? Number(portRaw) : null;
+
+    const filtered = hosts.filter(h => {
+        if (riskFilter !== 'all' && normalizeRisk(h.risk_level) !== riskFilter) return false;
+        if (osFilter !== 'all' && normalizeOs(h.os_detected) !== osFilter) return false;
+        if (portFilter && !(h.open_ports || []).map(Number).includes(portFilter)) return false;
+        if (vulnOnly && !hostHasVulnerability(h)) return false;
+        if (search) {
+            const hay = `${(h.ip_address || '').toLowerCase()} ${(h.hostname || '').toLowerCase()}`;
+            if (!hay.includes(search)) return false;
+        }
+        return true;
+    });
+
+    renderHosts(filtered, hosts.length);
+}
+
+function resetHostFilters() {
+    const ids = ['host-filter-search', 'host-filter-port', 'host-filter-os', 'host-filter-risk'];
+    ids.forEach(id => { const el = document.getElementById(id); if (el) el.value = el.tagName === 'SELECT' ? 'all' : ''; });
+    const vuln = document.getElementById('host-filter-vuln');
+    if (vuln) vuln.checked = false;
+    applyHostFilters();
+}
+
+function renderHosts(filteredHosts, totalCount) {
+    const hosts = Array.isArray(filteredHosts) ? filteredHosts : (window.currentScanHosts || []);
+    const total = totalCount != null ? totalCount : (window.currentScanHosts || []).length;
     const container = document.getElementById('hosts-container');
     const searchCount = document.getElementById('search-count');
-    
+
     if (!hosts || hosts.length === 0) {
-        container.innerHTML = '<div class="loading">Aucun hôte détecté</div>';
-        if (searchCount) searchCount.textContent = '';
+        if (total === 0) {
+            container.innerHTML = '<div class="pf-empty">Aucun hôte détecté pour ce scan.</div>';
+        } else {
+            container.innerHTML = `
+                <div class="pf-empty">
+                    <div style="font-size: 42px; margin-bottom: 12px;">🔍</div>
+                    Aucun hôte ne correspond aux filtres actuels.
+                </div>`;
+        }
+        if (searchCount) searchCount.textContent = `0 / ${total}`;
         return;
     }
-    
-    // Filtrage
-    let filteredHosts = hosts;
-    
-    // Filtre par risque (case-insensitive pour gérer CRITICAL vs critical)
-    if (riskFilter !== 'all') {
-        filteredHosts = filteredHosts.filter(h => {
-            const hostRisk = (h.risk_level || '').toLowerCase();
-            return hostRisk === riskFilter.toLowerCase();
-        });
-    }
-    
-    // Filtre par texte
-    if (filterText) {
-        const search = filterText.toLowerCase();
-        filteredHosts = filteredHosts.filter(host => {
-            const ip = (host.ip_address || '').toLowerCase();
-            const hostname = (host.hostname || '').toLowerCase();
-            const os = (host.os_detected || '').toLowerCase();
-            const ports = (host.open_ports || []).map(p => String(p)).join(' ');
-            
-            return ip.includes(search) || hostname.includes(search) || 
-                   os.includes(search) || ports.includes(search);
-        });
-    }
-    
-    // Afficher compteur
-    if (searchCount) {
-        searchCount.textContent = `${filteredHosts.length} / ${hosts.length}`;
-    }
-    
-    console.log(`Filtrage: ${filteredHosts.length} hôtes affichés (risque: ${riskFilter}, recherche: "${filterText}")`);
-    if (filteredHosts.length === 0 && hosts.length > 0) {
-        console.warn('Aucun hôte ne correspond aux filtres. Vérifier les risk_level:', hosts.map(h => h.risk_level));
-    }
-    
-    // Message si aucun résultat
-    if (filteredHosts.length === 0) {
-        container.innerHTML = `
-            <div style="text-align: center; padding: 40px; color: var(--text-muted);">
-                <div style="font-size: 48px; margin-bottom: 15px;">🔍</div>
-                <div style="font-size: 16px; margin-bottom: 8px;">Aucun hôte ne correspond aux critères</div>
-                <div style="font-size: 14px;">Essayez de modifier le filtre ou la recherche</div>
-            </div>
-        `;
-        return;
-    }
+
+    if (searchCount) searchCount.textContent = `${hosts.length} / ${total}`;
+
     
     // Rendu HTML
-    const hostsHtml = filteredHosts.map(host => {
-        const riskClass = `risk-${(host.risk_level || 'info').toLowerCase()}`;
+    const hostsHtml = hosts.map(host => {
+        const riskLevel = normalizeRisk(host.risk_level);
+        const riskClass = `risk-${riskLevel}`;
         const openPorts = host.open_ports || [];
         const riskColors = {
             'critical': 'var(--danger)',
             'high': 'var(--warning)',
-            'medium': 'var(--info)',
+            'medium': 'var(--medium)',
             'low': 'var(--success)',
-            'info': 'var(--text-muted)'
+            'info': 'var(--info)'
         };
-        const riskLevel = (host.risk_level || 'info').toLowerCase();
         const riskColor = riskColors[riskLevel] || 'var(--text-muted)';
+        const riskLabelMap = { critical: 'CRITIQUE', high: 'ÉLEVÉ', medium: 'MOYEN', low: 'FAIBLE', info: 'INFO' };
             
             return `
             <div class="host-card ${riskClass}" style="background: var(--dark); padding: 20px; border-radius: 12px; margin-bottom: 15px; border-left: 4px solid ${riskColor}; transition: all 0.3s ease;">
@@ -727,10 +817,10 @@ function renderHosts(hosts, filterText = '', riskFilter = 'all') {
                         </div>
                         <div style="text-align: right;">
                         <div style="font-size: 24px; font-weight: 700; color: ${riskColor}; margin-bottom: 3px;">
-                            ${host.priority_score || 0}<span style="font-size: 14px; opacity: 0.7;">/100</span>
+                            ${Math.min(100, Number(host.priority_score || 0))}<span style="font-size: 14px; opacity: 0.7;">/100</span>
                         </div>
                         <div style="display: inline-block; padding: 4px 12px; background: ${riskColor}; color: white; border-radius: 6px; font-size: 12px; font-weight: 600;">
-                            ${(host.risk_level || 'INFO').toUpperCase()}
+                            ${riskLabelMap[riskLevel] || 'INFO'}
                     </div>
                     </div>
                 </div>
@@ -752,22 +842,235 @@ function renderHosts(hosts, filterText = '', riskFilter = 'all') {
     container.innerHTML = hostsHtml || '<div class="loading">Aucun résultat</div>';
 }
 
-function filterHosts(searchText) {
-    const riskFilter = document.querySelector('.filter-btn.active')?.dataset.filter || 'all';
-    renderHosts(window.currentScanHosts, searchText, riskFilter);
-}
-
+function filterHosts() { applyHostFilters(); }
 function filterByRisk(risk) {
-    // Mettre à jour les boutons actifs
-    document.querySelectorAll('.filter-btn').forEach(btn => {
-        btn.classList.toggle('active', btn.dataset.filter === risk);
-    });
-    
-    const searchText = document.getElementById('host-search')?.value || '';
-    renderHosts(window.currentScanHosts, searchText, risk);
+    const sel = document.getElementById('host-filter-risk');
+    if (sel) sel.value = risk || 'all';
+    applyHostFilters();
 }
 
-// ========== RECOMMANDATIONS DE SÉCURITÉ ==========
+// ========== RECOMMANDATIONS DE SÉCURITÉ (nouvelle UI simplifiée) ==========
+
+function renderRemediationTab(report) {
+    const container = document.getElementById('remediation-container');
+    if (!container) return;
+
+    if (!report || !Array.isArray(report.hosts_recommendations) || report.hosts_recommendations.length === 0) {
+        container.innerHTML = `<div class="pf-empty">Aucune action de remédiation n'est nécessaire pour ce scan.</div>`;
+        return;
+    }
+
+    const hostsHtml = report.hosts_recommendations.map(hostRec => {
+        if (!hostRec || !hostRec.host_summary) return '';
+        const host = hostRec.host_summary;
+        const risk = normalizeRisk(host.risk_level);
+        const actions = collectHostActions(hostRec);
+        if (actions.length === 0) return '';
+
+        const header = `
+            <summary class="pf-rem-host-header">
+                <span class="pf-rem-host-info">
+                    <span class="pf-risk-dot pf-risk-${risk}"></span>
+                    <span>
+                        <span class="pf-rem-host-ip">${escapeHtml(host.ip || 'IP inconnue')}</span>
+                        ${host.hostname && host.hostname !== 'N/A' ? `<span class="pf-rem-host-name"> · ${escapeHtml(host.hostname)}</span>` : ''}
+                        <div class="pf-rem-host-meta">${escapeHtml(host.os || 'OS inconnu')} · ${actions.length} action${actions.length > 1 ? 's' : ''}</div>
+                    </span>
+                </span>
+                <span class="pf-rem-host-score">${Math.min(100, Number(host.priority_score || 0))}/100</span>
+            </summary>
+        `;
+
+        const body = actions.map((a, i) => renderActionItem(a, `${host.ip || 'h'}-${i}`)).join('');
+
+        return `
+            <details class="pf-rem-host" ${risk === 'critical' || risk === 'high' ? 'open' : ''}>
+                ${header}
+                <div class="pf-rem-host-body">${body}</div>
+            </details>
+        `;
+    }).join('');
+
+    container.innerHTML = `
+        <div class="pf-rem-top">
+            <div class="pf-rem-top-info">
+                <div class="pf-rem-top-title">Plan de remédiation</div>
+            </div>
+            <button class="pf-btn pf-btn-primary" onclick="downloadRemediationScript()">⬇️ Télécharger le script</button>
+        </div>
+        ${hostsHtml || '<div class="pf-empty">Aucune action de remédiation trouvée.</div>'}
+    `;
+}
+
+function collectHostActions(hostRec) {
+    const actions = [];
+
+    (hostRec.quick_wins || []).forEach(qw => {
+        actions.push({
+            kind: 'quick',
+            label: 'Quick win',
+            title: qw.action || 'Action rapide',
+            description: qw.impact ? `Impact : ${qw.impact}` : '',
+            commands: qw.commands || [],
+            time: qw.estimated_time,
+            difficulty: qw.difficulty,
+            risk: 'quick',
+        });
+    });
+
+    (hostRec.ports_analysis || []).forEach(p => {
+        actions.push({
+            kind: 'port',
+            label: `Port ${p.port}`,
+            title: p.service ? `${p.service} (${p.port})` : `Port ${p.port}`,
+            description: p.description || '',
+            commands: p.commands || [],
+            time: p.estimated_time,
+            difficulty: p.difficulty,
+            risk: (p.risk || 'low').toLowerCase(),
+            recommendations: p.recommendations || [],
+            cves: p.cve_refs || [],
+            references: p.references || [],
+        });
+    });
+
+    (hostRec.strategic_actions || []).forEach(s => {
+        actions.push({
+            kind: 'strategic',
+            label: 'Action stratégique',
+            title: s.title || 'Action',
+            description: s.description || '',
+            commands: [],
+            steps: s.steps || [],
+            time: s.estimated_time,
+            difficulty: s.difficulty,
+            risk: 'strategic',
+            references: s.resources || [],
+        });
+    });
+
+    return actions;
+}
+
+function renderActionItem(a, id) {
+    const cmdId = `cmd-${id}`;
+    const hasCommands = Array.isArray(a.commands) && a.commands.length > 0;
+    const hasSteps = Array.isArray(a.steps) && a.steps.length > 0;
+    const hasCves = Array.isArray(a.cves) && a.cves.length > 0;
+    const hasRecs = Array.isArray(a.recommendations) && a.recommendations.length > 0;
+    const hasRefs = Array.isArray(a.references) && a.references.length > 0;
+
+    return `
+        <div class="pf-action pf-action-${a.risk || 'low'}">
+            <div class="pf-action-head">
+                <div class="pf-action-title">
+                    <span class="pf-action-tag">${escapeHtml(a.label)}</span>
+                    <span>${escapeHtml(a.title)}</span>
+                </div>
+                <div class="pf-action-meta">
+                    ${a.difficulty ? `<span>📊 ${escapeHtml(a.difficulty)}</span>` : ''}
+                </div>
+            </div>
+            ${a.description ? `<div class="pf-action-desc">${escapeHtml(a.description)}</div>` : ''}
+            ${hasCves ? `<div class="pf-action-tags">${a.cves.map(c => `<span class="pf-chip pf-chip-danger">${escapeHtml(c)}</span>`).join('')}</div>` : ''}
+            ${hasCommands ? `
+                <div class="pf-cmd">
+                    <div class="pf-cmd-header">
+                        <span>Commandes</span>
+                        <button class="pf-btn pf-btn-ghost" onclick="copyToClipboardById('${cmdId}')">📋 Copier</button>
+                    </div>
+                    <pre id="${cmdId}">${a.commands.map(c => escapeHtml(c)).join('\n')}</pre>
+                </div>
+            ` : ''}
+            ${hasSteps ? `
+                <ol class="pf-steps">
+                    ${a.steps.map(s => `<li>${escapeHtml(s)}</li>`).join('')}
+                </ol>
+            ` : ''}
+            ${hasRecs ? `
+                <ul class="pf-recos">
+                    ${a.recommendations.map(r => `<li>${escapeHtml(r)}</li>`).join('')}
+                </ul>
+            ` : ''}
+            ${hasRefs ? `
+                <div class="pf-refs">
+                    ${a.references.map(r => `<a href="${escapeAttr(r)}" target="_blank" rel="noreferrer">${escapeHtml(r)}</a>`).join('')}
+                </div>
+            ` : ''}
+        </div>
+    `;
+}
+
+function renderReferencesTab(report) {
+    const container = document.getElementById('references-container');
+    if (!container) return;
+
+    if (!report) {
+        container.innerHTML = `<div class="pf-empty">Aucune référence disponible.</div>`;
+        return;
+    }
+
+    const cves = report.cve_summary || [];
+    const compliance = (report.compliance_summary && report.compliance_summary.frameworks_impacted) || [];
+    const complianceScore = (report.compliance_summary && report.compliance_summary.compliance_score) || null;
+    const urgent = report.network_wide_actions || [];
+
+    const sections = [];
+
+    if (urgent.length > 0) {
+        sections.push(`
+            <section class="pf-ref-section">
+                <h4>⚠️ Actions réseau prioritaires</h4>
+                ${urgent.map(a => `
+                    <div class="pf-ref-item">
+                        <div class="pf-ref-item-title">${escapeHtml(a.priority || '')} — ${escapeHtml(a.action || '')}</div>
+                        ${a.description ? `<div class="pf-ref-item-desc">${escapeHtml(a.description)}</div>` : ''}
+                        ${Array.isArray(a.steps) && a.steps.length ? `<ol class="pf-steps">${a.steps.map(s => `<li>${escapeHtml(s)}</li>`).join('')}</ol>` : ''}
+                    </div>
+                `).join('')}
+            </section>
+        `);
+    }
+
+    if (cves.length > 0) {
+        sections.push(`
+            <section class="pf-ref-section">
+                <h4>🚨 CVEs détectées <span class="pf-ref-count">${cves.length}</span></h4>
+                <div class="pf-chips">
+                    ${cves.map(c => `<span class="pf-chip pf-chip-danger">${escapeHtml(c)}</span>`).join('')}
+                </div>
+            </section>
+        `);
+    }
+
+    if (compliance.length > 0) {
+        sections.push(`
+            <section class="pf-ref-section">
+                <h4>📋 Conformité impactée</h4>
+                <div class="pf-chips">
+                    ${compliance.map(f => `<span class="pf-chip">${escapeHtml(f)}</span>`).join('')}
+                </div>
+                ${complianceScore ? `<div class="pf-ref-item-desc">Statut : ${escapeHtml(String(complianceScore))}</div>` : ''}
+            </section>
+        `);
+    }
+
+    container.innerHTML = sections.join('') || `<div class="pf-empty">Aucune CVE ni conformité impactée.</div>`;
+}
+
+function escapeAttr(s) {
+    return String(s).replace(/"/g, '&quot;').replace(/</g, '&lt;');
+}
+
+function copyToClipboardById(id) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    navigator.clipboard.writeText(el.innerText).then(() => {
+        notify.success('Commandes copiées 📋');
+    }).catch(() => notify.error('Erreur de copie'));
+}
+
+// ========== (ancienne fonction conservée pour compat, non utilisée) ==========
 
 function displaySecurityRecommendations(securityReport) {
     if (!securityReport) return;
@@ -808,13 +1111,9 @@ function displaySecurityRecommendations(securityReport) {
                     <div style="color: white; opacity: 0.9; font-size: 13px; margin-top: 5px;">Risques Élevés</div>
                 </div>
                 <div style="background: rgba(255,255,255,0.1); backdrop-filter: blur(10px); padding: 15px; border-radius: 10px;">
-                    <div style="font-size: 36px; font-weight: 700; color: #06B6D4;">${summary.medium_risk_hosts || 0}</div>
+                    <div style="font-size: 36px; font-weight: 700; color: var(--medium);">${summary.medium_risk_hosts || 0}</div>
                     <div style="color: white; opacity: 0.9; font-size: 13px; margin-top: 5px;">Risques Moyens</div>
             </div>
-                <div style="background: rgba(255,255,255,0.1); backdrop-filter: blur(10px); padding: 15px; border-radius: 10px;">
-                    <div style="font-size: 20px; font-weight: 600; color: white; opacity: 0.9;">⏱️ ${summary.total_remediation_time || 'N/A'}</div>
-                    <div style="color: white; opacity: 0.9; font-size: 13px; margin-top: 5px;">Temps estimé</div>
-        </div>
         </div>
             ${securityReport.compliance_summary && securityReport.compliance_summary.frameworks_impacted && securityReport.compliance_summary.frameworks_impacted.length > 0 ? `
                 <div style="background: rgba(255,255,255,0.08); padding: 12px; border-radius: 8px; margin-top: 12px;">
@@ -872,7 +1171,7 @@ function displaySecurityRecommendations(securityReport) {
             }
             
             const host = hostRec.host_summary;
-            const riskLevel = (host.risk_level || 'low').toLowerCase();
+            const riskLevel = normalizeRisk(host.risk_level);
             const riskClass = `risk-${riskLevel}`;
             const globalAssessment = hostRec.global_assessment || {
                 priority: '🟢 Faible - Amélioration continue',
@@ -888,7 +1187,7 @@ function displaySecurityRecommendations(securityReport) {
                                 ${host.ip || 'IP inconnue'} ${host.hostname && host.hostname !== 'N/A' ? `(${host.hostname})` : ''}
                             </div>
                             <div style="font-size: 14px; color: var(--text-muted);">
-                                ${host.os || 'OS inconnu'} • Score: ${host.priority_score || 0}/100
+                                ${host.os || 'OS inconnu'} • Score: ${Math.min(100, Number(host.priority_score || 0))}/100
                             </div>
                         </div>
                         <div style="text-align: right;">
@@ -911,7 +1210,6 @@ function displaySecurityRecommendations(securityReport) {
                                     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
                                         <div style="font-weight: 600; color: var(--text); font-size: 15px;">${qw.action}</div>
                                         <div style="display: flex; gap: 10px; font-size: 12px; color: var(--text-muted);">
-                                            ${qw.estimated_time ? `<span>⏱️ ${qw.estimated_time}</span>` : ''}
                                             ${qw.difficulty ? `<span>📊 ${qw.difficulty}</span>` : ''}
                                         </div>
                                     </div>
@@ -938,11 +1236,6 @@ function displaySecurityRecommendations(securityReport) {
                                 <span style="font-size: 12px; font-weight: normal; color: var(--text-muted); background: var(--darker); padding: 4px 10px; border-radius: 12px;">
                                     ${hostRec.ports_analysis.length} port(s)
                                 </span>
-                                ${hostRec.estimated_total_time ? `
-                                    <span style="font-size: 12px; font-weight: normal; color: var(--text-muted); margin-left: auto;">
-                                        ⏱️ Temps total: ${hostRec.estimated_total_time}
-                                    </span>
-                                ` : ''}
                             </h5>
                             ${hostRec.ports_analysis.map((portAnalysis, idx) => {
                                 const riskEmoji = {
@@ -956,7 +1249,7 @@ function displaySecurityRecommendations(securityReport) {
                                 <details style="background: var(--darker); padding: 15px; border-radius: 8px; margin-bottom: 12px; cursor: pointer; border: 1px solid var(--border);" ${idx === 0 ? 'open' : ''}>
                                     <summary style="font-weight: 600; color: var(--text); cursor: pointer; list-style: none; display: flex; justify-content: space-between; align-items: center; padding: 5px 0;">
                                         <span style="display: flex; align-items: center; gap: 10px;">
-                                            <span style="display: inline-block; min-width: 90px; text-align: center; background: var(--${portAnalysis.risk === 'critical' ? 'danger' : portAnalysis.risk === 'high' ? 'warning' : portAnalysis.risk === 'medium' ? 'info' : 'success'}); padding: 6px 12px; border-radius: 6px; font-size: 13px; font-weight: 700;">
+                                            <span style="display: inline-block; min-width: 90px; text-align: center; background: var(--${portAnalysis.risk === 'critical' ? 'danger' : portAnalysis.risk === 'high' ? 'warning' : portAnalysis.risk === 'medium' ? 'medium' : portAnalysis.risk === 'info' ? 'info' : 'success'}); padding: 6px 12px; border-radius: 6px; font-size: 13px; font-weight: 700;">
                                                 ${riskEmoji} ${portAnalysis.port}
                                             </span>
                                             <div>
@@ -965,7 +1258,6 @@ function displaySecurityRecommendations(securityReport) {
                                             </div>
                                         </span>
                                         <span style="display: flex; align-items: center; gap: 15px; font-size: 12px; color: var(--text-muted);">
-                                            ${portAnalysis.estimated_time ? `<span>⏱️ ${portAnalysis.estimated_time}</span>` : ''}
                                             ${portAnalysis.difficulty ? `<span>📊 ${portAnalysis.difficulty}</span>` : ''}
                                             <span>▼</span>
                                         </span>
@@ -1039,10 +1331,9 @@ function displaySecurityRecommendations(securityReport) {
                                         ` : ''}
                                     </div>
                                     <div style="color: var(--text-muted); font-size: 14px; margin-bottom: 12px;">${action.description}</div>
-                                    ${action.estimated_time || action.difficulty ? `
+                                    ${action.difficulty ? `
                                         <div style="display: flex; gap: 15px; margin-bottom: 12px; font-size: 13px;">
-                                            ${action.estimated_time ? `<span style="color: var(--text-muted);">⏱️ Temps: <strong style="color: var(--text);">${action.estimated_time}</strong></span>` : ''}
-                                            ${action.difficulty ? `<span style="color: var(--text-muted);">📊 Difficulté: <strong style="color: var(--text);">${action.difficulty}</strong></span>` : ''}
+                                            <span style="color: var(--text-muted);">📊 Difficulté: <strong style="color: var(--text);">${action.difficulty}</strong></span>
                                         </div>
                                     ` : ''}
                                     <div style="font-size: 14px; color: var(--text); margin-bottom: 8px; font-weight: 500;">Plan d'Action:</div>

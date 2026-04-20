@@ -1,30 +1,29 @@
-// PathFinder - Panneau d'Administration Caché (Pentest Mode)
-// Accès: /admin avec code 123jetebz
+// PathFinder - Panneau d'Administration (Pentest Mode)
+// Accès : /admin pour les comptes dont le JWT contient role='admin' (vérifié côté backend).
 
 let adminPanelActive = false;
-const ADMIN_CODE = '123jetebz';
 
 // ========== INITIALISATION ADMIN PANEL ==========
 
 function initAdminPanel() {
-    // Vérifier si l'URL contient /admin
     const path = window.location.pathname + window.location.hash;
-    
-    if (path.includes('/admin') || path.includes('#admin')) {
-        promptAdminCode();
-    }
-}
+    if (!path.includes('/admin') && !path.includes('#admin')) return;
 
-function promptAdminCode() {
-    const code = prompt('🔐 Code d\'accès Admin Pentest:');
-    
-    if (code === ADMIN_CODE) {
-        adminPanelActive = true;
-        showAdminPentestPanel();
-        notify.success('🔓 Mode Pentest Activé');
-    } else if (code !== null) {
-        notify.error('❌ Code incorrect');
+    let user = null;
+    try { user = JSON.parse(localStorage.getItem('userData') || 'null'); } catch (_) {}
+
+    if (!user) {
+        if (window.notify) notify.error('🔒 Connectez-vous en tant qu\'administrateur');
+        return;
     }
+    if (user.role !== 'admin') {
+        if (window.notify) notify.error('❌ Accès réservé aux administrateurs');
+        return;
+    }
+
+    adminPanelActive = true;
+    showAdminPentestPanel();
+    if (window.notify) notify.success('🔓 Mode Pentest Activé');
 }
 
 // ========== PANNEAU PENTEST ==========
@@ -464,7 +463,6 @@ async function launchPortScan() {
             method: 'POST',
             headers: {
                 'Authorization': `Bearer ${authToken}`,
-                'X-Pentest-Code': ADMIN_CODE,
                 'Content-Type': 'application/json'
             },
             body: JSON.stringify({
@@ -512,7 +510,6 @@ async function launchBruteforce() {
             method: 'POST',
             headers: {
                 'Authorization': `Bearer ${authToken}`,
-                'X-Pentest-Code': ADMIN_CODE,
                 'Content-Type': 'application/json'
             },
             body: JSON.stringify({
@@ -592,7 +589,6 @@ async function launchDirBusting() {
             method: 'POST',
             headers: {
                 'Authorization': `Bearer ${authToken}`,
-                'X-Pentest-Code': ADMIN_CODE,
                 'Content-Type': 'application/json'
             },
             body: JSON.stringify({
@@ -681,7 +677,6 @@ async function launchCVEScan() {
             method: 'POST',
             headers: {
                 'Authorization': `Bearer ${authToken}`,
-                'X-Pentest-Code': ADMIN_CODE,
                 'Content-Type': 'application/json'
             },
             body: JSON.stringify({ target: target })
@@ -855,7 +850,6 @@ async function launchExploit() {
             method: 'POST',
             headers: {
                 'Authorization': `Bearer ${authToken}`,
-                'X-Pentest-Code': ADMIN_CODE,
                 'Content-Type': 'application/json'
             },
             body: JSON.stringify({
@@ -943,7 +937,6 @@ async function launchNetworkMapping() {
             method: 'POST',
             headers: {
                 'Authorization': `Bearer ${authToken}`,
-                'X-Pentest-Code': ADMIN_CODE,
                 'Content-Type': 'application/json'
             },
             body: JSON.stringify({
@@ -1014,7 +1007,6 @@ async function launchAdvancedScan() {
             method: 'POST',
             headers: {
                 'Authorization': `Bearer ${authToken}`,
-                'X-Pentest-Code': ADMIN_CODE,
                 'Content-Type': 'application/json'
             },
             body: JSON.stringify({
@@ -1095,7 +1087,6 @@ async function crackHash() {
             method: 'POST',
             headers: {
                 'Authorization': `Bearer ${authToken}`,
-                'X-Pentest-Code': ADMIN_CODE,
                 'Content-Type': 'application/json'
             },
             body: JSON.stringify({
@@ -1196,7 +1187,6 @@ async function reverseDNS() {
             method: 'POST',
             headers: {
                 'Authorization': `Bearer ${authToken}`,
-                'X-Pentest-Code': ADMIN_CODE,
                 'Content-Type': 'application/json'
             },
             body: JSON.stringify({
@@ -1256,7 +1246,6 @@ async function whoisLookup() {
             method: 'POST',
             headers: {
                 'Authorization': `Bearer ${authToken}`,
-                'X-Pentest-Code': ADMIN_CODE,
                 'Content-Type': 'application/json'
             },
             body: JSON.stringify({
@@ -1310,7 +1299,6 @@ async function startPacketCapture() {
             method: 'POST',
             headers: {
                 'Authorization': `Bearer ${authToken}`,
-                'X-Pentest-Code': ADMIN_CODE,
                 'Content-Type': 'application/json'
             },
             body: JSON.stringify({
@@ -1364,7 +1352,6 @@ async function stopPacketCapture() {
             method: 'POST',
             headers: {
                 'Authorization': `Bearer ${authToken}`,
-                'X-Pentest-Code': ADMIN_CODE,
                 'Content-Type': 'application/json'
             },
             body: JSON.stringify({
@@ -1417,7 +1404,6 @@ async function spoofMAC() {
             method: 'POST',
             headers: {
                 'Authorization': `Bearer ${authToken}`,
-                'X-Pentest-Code': ADMIN_CODE,
                 'Content-Type': 'application/json'
             },
             body: JSON.stringify({
@@ -1464,7 +1450,6 @@ async function resetMAC() {
             method: 'POST',
             headers: {
                 'Authorization': `Bearer ${authToken}`,
-                'X-Pentest-Code': ADMIN_CODE,
                 'Content-Type': 'application/json'
             },
             body: JSON.stringify({
@@ -1507,7 +1492,6 @@ async function monitorBandwidth() {
             method: 'POST',
             headers: {
                 'Authorization': `Bearer ${authToken}`,
-                'X-Pentest-Code': ADMIN_CODE,
                 'Content-Type': 'application/json'
             },
             body: JSON.stringify({
