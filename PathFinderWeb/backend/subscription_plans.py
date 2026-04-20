@@ -35,6 +35,9 @@ class Plan:
     tagline: str
     features: List[str]         # liste humaine pour la pricing page
     limits: Dict[str, Any] = field(default_factory=dict)
+    # True => plan non achetable en self-service. Nécessite un devis + activation
+    # manuelle par un admin qui crée une entreprise et attribue des licences.
+    quote_only: bool = False
 
     def to_dict(self) -> Dict[str, Any]:
         d = asdict(self)
@@ -102,15 +105,16 @@ PLANS: Dict[str, Plan] = {
     TIER_ENTERPRISE: Plan(
         tier=TIER_ENTERPRISE,
         name="Enterprise",
-        price_cents=4900,
+        price_cents=0,          # sur devis : pas de prix public
         currency="EUR",
-        tagline="Pour les équipes sécurité qui ont besoin du mode Furtif et des outils de pentest.",
+        tagline="Équipes sécurité : licences multi-postes gérées par un chef d'entreprise, tarif sur devis.",
         features=[
             "Tout le plan Pro",
             "Mode Furtif (stealth)",
             "Planifications illimitées",
             "Pentest tools activés",
-            "Support prioritaire",
+            "Licences multi-postes gérées par votre chef d'entreprise",
+            "Support prioritaire dédié",
         ],
         limits={
             "scans_per_month": None,
@@ -120,6 +124,7 @@ PLANS: Dict[str, Plan] = {
             "can_export": True,
             "can_use_pentest": True,
         },
+        quote_only=True,
     ),
 }
 
@@ -145,10 +150,19 @@ def normalize_tier(tier: Optional[str]) -> str:
 # ---------------------------------------------------------------------------
 
 def effective_tier(user_row: Dict[str, Any]) -> str:
-    """Calcule le tier effectif en tenant compte de l'expiration.
+    """Calcule le tier effectif en tenant compte de l'expiration et de
+    l'appartenance à une entreprise.
 
-    Un user avec tier=pro mais ends_at passé => retombe en free.
+    Règles :
+      - tout user rattaché à une entreprise (`company_id` non nul) OU
+        ayant le rôle `company_admin` est Enterprise, point final
+        (la licence est gérée par le chef d'entreprise, pas par le billing user).
+      - sinon, pro/enterprise expiré => retombe en free.
     """
+    if user_row.get("company_id") is not None or \
+       (user_row.get("role") or "").lower() == "company_admin":
+        return TIER_ENTERPRISE
+
     tier = normalize_tier(user_row.get("subscription_tier"))
     if tier == TIER_FREE:
         return TIER_FREE

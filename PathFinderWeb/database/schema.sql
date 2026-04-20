@@ -10,17 +10,58 @@ CREATE TABLE IF NOT EXISTS users (
     email VARCHAR(255) UNIQUE NOT NULL,
     username VARCHAR(100) NOT NULL,
     password_hash VARCHAR(255) NOT NULL,
-    role ENUM('user', 'admin') DEFAULT 'user' NOT NULL,
+    role ENUM('user', 'admin', 'company_admin') DEFAULT 'user' NOT NULL,
     -- Abonnement : 'free' | 'pro' | 'enterprise'. ends_at=NULL => pas d'échéance (free).
     subscription_tier VARCHAR(20) NOT NULL DEFAULT 'free',
     subscription_started_at DATETIME NULL,
     subscription_ends_at DATETIME NULL,
     subscription_auto_renew TINYINT(1) NOT NULL DEFAULT 1,
+    -- Rattachement à une entreprise (Enterprise = sur devis, géré par un chef d'entreprise).
+    company_id INT NULL,
     created_at DATETIME NOT NULL,
     last_login DATETIME,
     INDEX idx_email (email),
     INDEX idx_role (role),
-    INDEX idx_tier (subscription_tier)
+    INDEX idx_tier (subscription_tier),
+    INDEX idx_company (company_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Entreprises Enterprise (licences gérées par un chef d'entreprise).
+-- license_count = total de sièges vendus (incluant le chef d'entreprise).
+CREATE TABLE IF NOT EXISTS companies (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(150) NOT NULL,
+    owner_user_id INT NOT NULL UNIQUE,
+    license_count INT NOT NULL DEFAULT 1,
+    notes TEXT NULL,
+    created_at DATETIME NOT NULL,
+    updated_at DATETIME NOT NULL,
+    FOREIGN KEY (owner_user_id) REFERENCES users(id) ON DELETE CASCADE,
+    INDEX idx_owner (owner_user_id),
+    INDEX idx_name (name)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- FK tardive une fois companies créée (MySQL accepte ALTER après CREATE).
+-- (Au setup initial, users.company_id reste NULL ; les deux tables peuvent
+-- coexister sans contrainte et on ajoute la contrainte au premier setup.)
+-- Idempotent : on utilise un bloc IF NOT EXISTS via information_schema côté migration.
+
+-- Demandes de devis Enterprise déposées depuis la landing.
+CREATE TABLE IF NOT EXISTS quote_requests (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    email VARCHAR(255) NOT NULL,
+    contact_name VARCHAR(150) NULL,
+    company_name VARCHAR(150) NULL,
+    phone VARCHAR(50) NULL,
+    seats_requested INT NULL,
+    message TEXT NULL,
+    status ENUM('new', 'contacted', 'closed') NOT NULL DEFAULT 'new',
+    user_id INT NULL,
+    created_at DATETIME NOT NULL,
+    updated_at DATETIME NOT NULL,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL,
+    INDEX idx_status (status),
+    INDEX idx_created (created_at DESC)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- Historique des abonnements (audit + permet de voir les changements de plan).

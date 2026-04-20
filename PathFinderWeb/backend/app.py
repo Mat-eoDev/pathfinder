@@ -182,7 +182,7 @@ def token_required(f):
 # ========== HELPERS ABONNEMENT ==========
 
 def _get_user_row(user_id):
-    """Lit la ligne user complète (incluant les champs abonnement)."""
+    """Lit la ligne user complète (incluant les champs abonnement + entreprise)."""
     conn = get_db_connection()
     if not conn:
         return None
@@ -191,7 +191,8 @@ def _get_user_row(user_id):
         cursor.execute(
             "SELECT id, email, username, role, "
             "       subscription_tier, subscription_started_at, "
-            "       subscription_ends_at, subscription_auto_renew "
+            "       subscription_ends_at, subscription_auto_renew, "
+            "       company_id "
             "FROM users WHERE id = %s",
             (user_id,)
         )
@@ -336,7 +337,8 @@ def login():
         cursor.execute(
             "SELECT id, email, username, role, password_hash, "
             "       subscription_tier, subscription_started_at, "
-            "       subscription_ends_at, subscription_auto_renew "
+            "       subscription_ends_at, subscription_auto_renew, "
+            "       company_id "
             "FROM users WHERE email = %s",
             (email,)
         )
@@ -375,11 +377,13 @@ def login():
                 'email': user['email'],
                 'username': user['username'],
                 'role': user['role'],
+                'company_id': user.get('company_id'),
                 'subscription': {
                     'tier': effective,
                     'ends_at': user['subscription_ends_at'].isoformat()
                                 if user.get('subscription_ends_at') else None,
                     'auto_renew': bool(user.get('subscription_auto_renew', 1)),
+                    'managed_by_company': user.get('company_id') is not None,
                 },
             }
         }), 200
@@ -408,15 +412,19 @@ def subscription_me(current_user_id):
     tier = subs.effective_tier(row)
     plan = subs.get_plan(tier).to_dict()
     used_scans_30d = _count_scans_last_30d(current_user_id)
+    managed = row.get('company_id') is not None
     return jsonify({
         'tier': tier,
         'plan': plan,
-        'active': subs.is_subscription_active(row),
+        'active': subs.is_subscription_active(row) or managed,
         'started_at': row['subscription_started_at'].isoformat()
                         if row.get('subscription_started_at') else None,
         'ends_at': row['subscription_ends_at'].isoformat()
                         if row.get('subscription_ends_at') else None,
         'auto_renew': bool(row.get('subscription_auto_renew', 1)),
+        'managed_by_company': managed,
+        'company_id': row.get('company_id'),
+        'role': row.get('role'),
         'usage': {
             'scans_last_30d': used_scans_30d,
             'scans_limit': subs.scan_quota(tier),
@@ -445,6 +453,13 @@ def subscription_checkout(current_user_id):
     tier = subs.normalize_tier(data.get('tier'))
     if tier == subs.TIER_FREE:
         return jsonify({'message': 'Choisissez un plan payant.'}), 400
+    # Enterprise = sur devis : pas de checkout self-service.
+    plan_def = subs.get_plan(tier)
+    if getattr(plan_def, 'quote_only', False):
+        return jsonify({
+            'message': "Le plan Enterprise est sur devis. Contactez-nous via /api/subscription/quote-request.",
+            'quote_only': True,
+        }), 400
 
     card = data.get('card') or {}
     validation = subs.validate_fake_card(
@@ -599,6 +614,553 @@ def subscription_invoices(current_user_id):
                 r['issued_at'] = r['issued_at'].isoformat()
             r['amount_eur'] = (r.get('amount_cents') or 0) / 100.0
         return jsonify({'invoices': rows}), 200
+    finally:
+        cursor.close()
+        conn.close()
+
+
+# ========== DEMANDES DE DEVIS (ENTERPRISE) ==========
+
+@app.route('/api/subscription/quote-request', methods=['POST'])
+@limiter.limit("5 per minute; 30 per hour", key_func=get_remote_address)
+def subscription_quote_request():
+    """Dépose une demande de devis Enterprise.
+
+    Pas de token requis (landing publique) mais si un JWT valide est fourni
+    on rattache la demande au user pour traçabilité.
+    """
+    data = request.get_json(silent=True) or {}
+    email = (data.get('email') or '').strip().lower()
+    if not email or '@' not in email:
+        return jsonify({'message': 'Email valide requis.'}), 400
+
+    contact_name = (data.get('contact_name') or '').strip()[:150] or None
+    company_name = (data.get('company_name') or '').strip()[:150] or None
+    phone = (data.get('phone') or '').strip()[:50] or None
+    message = (data.get('message') or '').strip()[:2000] or None
+
+    seats_raw = data.get('seats_requested')
+    try:
+        seats = int(seats_raw) if seats_raw not in (None, '') else None
+        if seats is not None and (seats < 1 or seats > 10000):
+            seats = None
+    except (TypeError, ValueError):
+        seats = None
+
+    user_id = None
+    token = request.headers.get('Authorization', '')
+    if token.startswith('Bearer '):
+        token = token[7:]
+    if token:
+        try:
+            token_data = jwt.decode(token, app.config['SECRET_KEY'], algorithms=["HS256"])
+            user_id = token_data.get('user_id')
+        except jwt.PyJWTError:
+            pass
+
+    conn = get_db_connection()
+    if not conn:
+        return jsonify({'message': 'DB indisponible'}), 500
+    cursor = conn.cursor()
+    try:
+        now = datetime.datetime.now()
+        cursor.execute(
+            """INSERT INTO quote_requests
+               (email, contact_name, company_name, phone, seats_requested,
+                message, status, user_id, created_at, updated_at)
+               VALUES (%s, %s, %s, %s, %s, %s, 'new', %s, %s, %s)""",
+            (email, contact_name, company_name, phone, seats,
+             message, user_id, now, now)
+        )
+        request_id = cursor.lastrowid
+        conn.commit()
+        if user_id:
+            log_activity(user_id, 'quote_request',
+                         f'Demande de devis Enterprise ({email})',
+                         json.dumps({'company': company_name, 'seats': seats}))
+        return jsonify({
+            'message': "Merci ! Notre équipe vous recontacte sous 2 jours ouvrés.",
+            'request_id': request_id,
+        }), 201
+    except Error as e:
+        conn.rollback()
+        return jsonify({'message': f'Erreur: {e}'}), 500
+    finally:
+        cursor.close()
+        conn.close()
+
+
+# ========== ADMIN : ENTREPRISES & DEVIS ==========
+
+def _require_admin():
+    """Retourne (ok: bool, err_response: tuple|None)."""
+    token = request.headers.get('Authorization', '')
+    if token.startswith('Bearer '):
+        token = token[7:]
+    if not token:
+        return False, (jsonify({'message': 'Token manquant'}), 401)
+    try:
+        data = jwt.decode(token, app.config['SECRET_KEY'], algorithms=["HS256"])
+    except jwt.PyJWTError:
+        return False, (jsonify({'message': 'Token invalide'}), 401)
+    if data.get('role') != 'admin':
+        return False, (jsonify({'message': 'Accès admin requis'}), 403)
+    return True, None
+
+
+@app.route('/api/admin/companies', methods=['GET'])
+@token_required
+def admin_list_companies(current_user_id):
+    """Liste toutes les entreprises avec usage des licences."""
+    ok, err = _require_admin()
+    if not ok:
+        return err
+    conn = get_db_connection()
+    if not conn:
+        return jsonify({'message': 'DB indisponible'}), 500
+    cursor = conn.cursor(dictionary=True)
+    try:
+        cursor.execute(
+            """SELECT c.id, c.name, c.license_count, c.notes,
+                      c.owner_user_id, c.created_at, c.updated_at,
+                      u.email AS owner_email, u.username AS owner_username,
+                      (SELECT COUNT(*) FROM users m WHERE m.company_id = c.id) AS seats_used
+               FROM companies c
+               JOIN users u ON u.id = c.owner_user_id
+               ORDER BY c.created_at DESC"""
+        )
+        rows = cursor.fetchall()
+        for r in rows:
+            r['created_at'] = r['created_at'].isoformat() if r.get('created_at') else None
+            r['updated_at'] = r['updated_at'].isoformat() if r.get('updated_at') else None
+        return jsonify({'companies': rows}), 200
+    finally:
+        cursor.close()
+        conn.close()
+
+
+@app.route('/api/admin/companies', methods=['POST'])
+@token_required
+def admin_create_company(current_user_id):
+    """Crée une entreprise Enterprise en promouvant un user existant chef d'entreprise.
+
+    Body JSON : { name, owner_email, license_count, notes? }
+    """
+    ok, err = _require_admin()
+    if not ok:
+        return err
+    data = request.get_json(silent=True) or {}
+    name = (data.get('name') or '').strip()
+    owner_email = (data.get('owner_email') or '').strip().lower()
+    notes = (data.get('notes') or '').strip() or None
+    try:
+        license_count = int(data.get('license_count') or 0)
+    except (TypeError, ValueError):
+        license_count = 0
+    if not name or not owner_email or license_count < 1:
+        return jsonify({'message': 'name, owner_email et license_count>=1 requis.'}), 400
+    if license_count > 10000:
+        return jsonify({'message': 'license_count trop élevé (max 10000).'}), 400
+
+    conn = get_db_connection()
+    if not conn:
+        return jsonify({'message': 'DB indisponible'}), 500
+    cursor = conn.cursor(dictionary=True)
+    try:
+        cursor.execute("SELECT id, company_id, role FROM users WHERE email = %s",
+                       (owner_email,))
+        owner = cursor.fetchone()
+        if not owner:
+            return jsonify({'message': "Aucun utilisateur avec cet email."}), 404
+        if owner.get('company_id'):
+            return jsonify({'message': "Ce user est déjà membre d'une entreprise."}), 400
+        cursor.execute("SELECT id FROM companies WHERE owner_user_id = %s", (owner['id'],))
+        if cursor.fetchone():
+            return jsonify({'message': "Ce user est déjà chef d'une entreprise."}), 400
+
+        now = datetime.datetime.now()
+        cursor.execute(
+            """INSERT INTO companies (name, owner_user_id, license_count, notes,
+                                       created_at, updated_at)
+               VALUES (%s, %s, %s, %s, %s, %s)""",
+            (name, owner['id'], license_count, notes, now, now)
+        )
+        company_id = cursor.lastrowid
+
+        # Promotion du owner : rôle + rattachement + tier enterprise.
+        cursor.execute(
+            """UPDATE users
+                  SET role = 'company_admin',
+                      company_id = %s,
+                      subscription_tier = 'enterprise',
+                      subscription_started_at = %s,
+                      subscription_ends_at = NULL,
+                      subscription_auto_renew = 0
+                WHERE id = %s""",
+            (company_id, now, owner['id'])
+        )
+        conn.commit()
+
+        log_activity(current_user_id, 'admin_create_company',
+                     f'Création entreprise "{name}" pour {owner_email}',
+                     json.dumps({'company_id': company_id,
+                                 'license_count': license_count}))
+        return jsonify({
+            'message': 'Entreprise créée',
+            'company_id': company_id,
+        }), 201
+    except Error as e:
+        conn.rollback()
+        return jsonify({'message': f'Erreur: {e}'}), 500
+    finally:
+        cursor.close()
+        conn.close()
+
+
+@app.route('/api/admin/companies/<int:company_id>', methods=['PATCH'])
+@token_required
+def admin_update_company(current_user_id, company_id):
+    """Met à jour nom, license_count, notes d'une entreprise."""
+    ok, err = _require_admin()
+    if not ok:
+        return err
+    data = request.get_json(silent=True) or {}
+    fields = []
+    params = []
+    if 'name' in data:
+        name = (data.get('name') or '').strip()
+        if not name:
+            return jsonify({'message': 'name ne peut être vide.'}), 400
+        fields.append("name = %s")
+        params.append(name)
+    if 'license_count' in data:
+        try:
+            lc = int(data.get('license_count'))
+        except (TypeError, ValueError):
+            return jsonify({'message': 'license_count invalide.'}), 400
+        if lc < 1 or lc > 10000:
+            return jsonify({'message': 'license_count doit être entre 1 et 10000.'}), 400
+        fields.append("license_count = %s")
+        params.append(lc)
+    if 'notes' in data:
+        notes = (data.get('notes') or '').strip() or None
+        fields.append("notes = %s")
+        params.append(notes)
+    if not fields:
+        return jsonify({'message': 'Aucun champ à mettre à jour.'}), 400
+
+    conn = get_db_connection()
+    if not conn:
+        return jsonify({'message': 'DB indisponible'}), 500
+    cursor = conn.cursor(dictionary=True)
+    try:
+        fields.append("updated_at = NOW()")
+        cursor.execute(
+            f"UPDATE companies SET {', '.join(fields)} WHERE id = %s",
+            (*params, company_id)
+        )
+        if cursor.rowcount == 0:
+            return jsonify({'message': 'Entreprise introuvable'}), 404
+
+        # Si on baisse le license_count, vérifier qu'on ne dépasse pas (warning, pas d'auto-kick).
+        cursor.execute(
+            """SELECT c.license_count,
+                      (SELECT COUNT(*) FROM users u WHERE u.company_id = c.id) AS seats_used
+               FROM companies c WHERE c.id = %s""",
+            (company_id,)
+        )
+        info = cursor.fetchone() or {}
+        conn.commit()
+        log_activity(current_user_id, 'admin_update_company',
+                     f'Mise à jour entreprise #{company_id}',
+                     json.dumps(data))
+        return jsonify({
+            'message': 'Entreprise mise à jour',
+            'license_count': info.get('license_count'),
+            'seats_used': info.get('seats_used'),
+            'over_quota': (info.get('seats_used') or 0) > (info.get('license_count') or 0),
+        }), 200
+    except Error as e:
+        conn.rollback()
+        return jsonify({'message': f'Erreur: {e}'}), 500
+    finally:
+        cursor.close()
+        conn.close()
+
+
+@app.route('/api/admin/companies/<int:company_id>', methods=['DELETE'])
+@token_required
+def admin_delete_company(current_user_id, company_id):
+    """Supprime une entreprise : tous les membres redeviennent user/free."""
+    ok, err = _require_admin()
+    if not ok:
+        return err
+    conn = get_db_connection()
+    if not conn:
+        return jsonify({'message': 'DB indisponible'}), 500
+    cursor = conn.cursor(dictionary=True)
+    try:
+        cursor.execute("SELECT id, owner_user_id, name FROM companies WHERE id = %s",
+                       (company_id,))
+        comp = cursor.fetchone()
+        if not comp:
+            return jsonify({'message': 'Entreprise introuvable'}), 404
+
+        # Détache tous les membres (ON DELETE SET NULL le ferait aussi, mais on veut
+        # aussi remettre le tier à free et rétrograder le rôle du owner).
+        cursor.execute(
+            """UPDATE users
+                  SET company_id = NULL,
+                      subscription_tier = 'free',
+                      subscription_ends_at = NULL,
+                      subscription_auto_renew = 0
+                WHERE company_id = %s""",
+            (company_id,)
+        )
+        cursor.execute(
+            "UPDATE users SET role = 'user' WHERE id = %s AND role = 'company_admin'",
+            (comp['owner_user_id'],)
+        )
+        cursor.execute("DELETE FROM companies WHERE id = %s", (company_id,))
+        conn.commit()
+        log_activity(current_user_id, 'admin_delete_company',
+                     f'Suppression entreprise #{company_id} ({comp.get("name")})')
+        return jsonify({'message': 'Entreprise supprimée'}), 200
+    except Error as e:
+        conn.rollback()
+        return jsonify({'message': f'Erreur: {e}'}), 500
+    finally:
+        cursor.close()
+        conn.close()
+
+
+@app.route('/api/admin/quote-requests', methods=['GET'])
+@token_required
+def admin_list_quote_requests(current_user_id):
+    """Liste les demandes de devis Enterprise."""
+    ok, err = _require_admin()
+    if not ok:
+        return err
+    status = request.args.get('status')
+    conn = get_db_connection()
+    if not conn:
+        return jsonify({'message': 'DB indisponible'}), 500
+    cursor = conn.cursor(dictionary=True)
+    try:
+        if status in ('new', 'contacted', 'closed'):
+            cursor.execute(
+                """SELECT * FROM quote_requests
+                   WHERE status = %s ORDER BY created_at DESC LIMIT 500""",
+                (status,)
+            )
+        else:
+            cursor.execute(
+                "SELECT * FROM quote_requests ORDER BY created_at DESC LIMIT 500"
+            )
+        rows = cursor.fetchall()
+        for r in rows:
+            r['created_at'] = r['created_at'].isoformat() if r.get('created_at') else None
+            r['updated_at'] = r['updated_at'].isoformat() if r.get('updated_at') else None
+        return jsonify({'quote_requests': rows}), 200
+    finally:
+        cursor.close()
+        conn.close()
+
+
+@app.route('/api/admin/quote-requests/<int:req_id>', methods=['PATCH'])
+@token_required
+def admin_update_quote_request(current_user_id, req_id):
+    """Met à jour le statut d'une demande de devis."""
+    ok, err = _require_admin()
+    if not ok:
+        return err
+    data = request.get_json(silent=True) or {}
+    status = (data.get('status') or '').strip().lower()
+    if status not in ('new', 'contacted', 'closed'):
+        return jsonify({'message': 'status invalide'}), 400
+    conn = get_db_connection()
+    if not conn:
+        return jsonify({'message': 'DB indisponible'}), 500
+    cursor = conn.cursor()
+    try:
+        cursor.execute(
+            "UPDATE quote_requests SET status = %s, updated_at = NOW() WHERE id = %s",
+            (status, req_id)
+        )
+        if cursor.rowcount == 0:
+            return jsonify({'message': 'Demande introuvable'}), 404
+        conn.commit()
+        return jsonify({'message': 'Statut mis à jour'}), 200
+    finally:
+        cursor.close()
+        conn.close()
+
+
+# ========== COMPANY ADMIN : GESTION DES MEMBRES ==========
+
+def _get_owned_company(user_id):
+    """Renvoie la ligne companies dont le user est chef (ou None)."""
+    conn = get_db_connection()
+    if not conn:
+        return None
+    cursor = conn.cursor(dictionary=True)
+    try:
+        cursor.execute(
+            "SELECT * FROM companies WHERE owner_user_id = %s",
+            (user_id,)
+        )
+        return cursor.fetchone()
+    finally:
+        cursor.close()
+        conn.close()
+
+
+@app.route('/api/company/me', methods=['GET'])
+@token_required
+def company_me(current_user_id):
+    """Détails de l'entreprise gérée par le chef d'entreprise courant."""
+    company = _get_owned_company(current_user_id)
+    if not company:
+        return jsonify({'message': "Vous n'êtes pas chef d'entreprise."}), 403
+    conn = get_db_connection()
+    if not conn:
+        return jsonify({'message': 'DB indisponible'}), 500
+    cursor = conn.cursor(dictionary=True)
+    try:
+        cursor.execute(
+            """SELECT id, email, username, role, created_at, last_login
+               FROM users WHERE company_id = %s
+               ORDER BY (id = %s) DESC, created_at ASC""",
+            (company['id'], current_user_id)
+        )
+        members = cursor.fetchall()
+        for m in members:
+            m['created_at'] = m['created_at'].isoformat() if m.get('created_at') else None
+            m['last_login'] = m['last_login'].isoformat() if m.get('last_login') else None
+            m['is_owner'] = (m['id'] == current_user_id)
+        company['created_at'] = company['created_at'].isoformat() if company.get('created_at') else None
+        company['updated_at'] = company['updated_at'].isoformat() if company.get('updated_at') else None
+        return jsonify({
+            'company': company,
+            'members': members,
+            'seats_used': len(members),
+            'seats_available': max((company['license_count'] or 0) - len(members), 0),
+        }), 200
+    finally:
+        cursor.close()
+        conn.close()
+
+
+@app.route('/api/company/members', methods=['POST'])
+@token_required
+def company_add_member(current_user_id):
+    """Le chef d'entreprise ajoute un user existant à son entreprise.
+
+    Body JSON : { email }
+    """
+    company = _get_owned_company(current_user_id)
+    if not company:
+        return jsonify({'message': "Vous n'êtes pas chef d'entreprise."}), 403
+
+    data = request.get_json(silent=True) or {}
+    email = (data.get('email') or '').strip().lower()
+    if not email or '@' not in email:
+        return jsonify({'message': 'Email valide requis.'}), 400
+
+    conn = get_db_connection()
+    if not conn:
+        return jsonify({'message': 'DB indisponible'}), 500
+    cursor = conn.cursor(dictionary=True)
+    try:
+        # Check licenses disponibles
+        cursor.execute(
+            "SELECT COUNT(*) AS used FROM users WHERE company_id = %s",
+            (company['id'],)
+        )
+        used = (cursor.fetchone() or {}).get('used', 0) or 0
+        if used >= (company['license_count'] or 0):
+            return jsonify({
+                'message': "Toutes vos licences sont utilisées. Contactez l'administrateur pour en ajouter.",
+                'seats_used': used,
+                'license_count': company['license_count'],
+            }), 409
+
+        cursor.execute("SELECT id, email, role, company_id FROM users WHERE email = %s",
+                       (email,))
+        target = cursor.fetchone()
+        if not target:
+            return jsonify({'message': "Cet utilisateur n'existe pas encore. Demandez-lui de créer un compte PathFinder."}), 404
+        if target.get('role') == 'admin':
+            return jsonify({'message': "Impossible d'ajouter un super admin à une entreprise."}), 400
+        if target.get('company_id'):
+            if target['company_id'] == company['id']:
+                return jsonify({'message': 'Déjà membre de votre entreprise.'}), 409
+            return jsonify({'message': "Cet utilisateur est déjà membre d'une autre entreprise."}), 409
+
+        cursor.execute(
+            """UPDATE users
+                  SET company_id = %s,
+                      subscription_tier = 'enterprise',
+                      subscription_started_at = COALESCE(subscription_started_at, NOW()),
+                      subscription_ends_at = NULL,
+                      subscription_auto_renew = 0
+                WHERE id = %s""",
+            (company['id'], target['id'])
+        )
+        conn.commit()
+        log_activity(current_user_id, 'company_add_member',
+                     f'Ajout de {email} à l\'entreprise',
+                     json.dumps({'company_id': company['id'],
+                                 'target_user_id': target['id']}))
+        log_activity(target['id'], 'company_joined',
+                     f'Ajouté à l\'entreprise #{company["id"]}')
+        return jsonify({'message': 'Licence attribuée.'}), 201
+    except Error as e:
+        conn.rollback()
+        return jsonify({'message': f'Erreur: {e}'}), 500
+    finally:
+        cursor.close()
+        conn.close()
+
+
+@app.route('/api/company/members/<int:user_id>', methods=['DELETE'])
+@token_required
+def company_remove_member(current_user_id, user_id):
+    """Le chef d'entreprise retire une licence à un membre (hors lui-même)."""
+    company = _get_owned_company(current_user_id)
+    if not company:
+        return jsonify({'message': "Vous n'êtes pas chef d'entreprise."}), 403
+    if user_id == current_user_id:
+        return jsonify({'message': "Un chef d'entreprise ne peut pas se retirer lui-même. Contactez l'administrateur."}), 400
+
+    conn = get_db_connection()
+    if not conn:
+        return jsonify({'message': 'DB indisponible'}), 500
+    cursor = conn.cursor(dictionary=True)
+    try:
+        cursor.execute("SELECT id, email, company_id FROM users WHERE id = %s",
+                       (user_id,))
+        target = cursor.fetchone()
+        if not target or target.get('company_id') != company['id']:
+            return jsonify({'message': "Utilisateur introuvable dans votre entreprise."}), 404
+        cursor.execute(
+            """UPDATE users
+                  SET company_id = NULL,
+                      subscription_tier = 'free',
+                      subscription_ends_at = NULL,
+                      subscription_auto_renew = 0
+                WHERE id = %s""",
+            (user_id,)
+        )
+        conn.commit()
+        log_activity(current_user_id, 'company_remove_member',
+                     f'Retrait de {target["email"]} de l\'entreprise',
+                     json.dumps({'company_id': company['id'],
+                                 'target_user_id': user_id}))
+        return jsonify({'message': 'Licence retirée.'}), 200
+    except Error as e:
+        conn.rollback()
+        return jsonify({'message': f'Erreur: {e}'}), 500
     finally:
         cursor.close()
         conn.close()

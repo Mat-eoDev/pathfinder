@@ -31,7 +31,9 @@
     // ---------------------------------------------------------------
 
     function getToken() {
-        return localStorage.getItem('token') || sessionStorage.getItem('token');
+        return localStorage.getItem('authToken')
+            || localStorage.getItem('token')
+            || sessionStorage.getItem('token');
     }
 
     function authHeaders() {
@@ -117,16 +119,27 @@
         const currentTier = opts.currentTier;
         const featured = plan.tier === 'pro';
         const isCurrent = plan.tier === currentTier;
+        const quoteOnly = !!plan.quote_only;
 
-        const priceLine = plan.price_cents === 0
-            ? '<span class="price-amount">0€</span><span class="price-period">/mois</span>'
-            : `<span class="price-amount">${plan.price_eur.toFixed(0)}€</span><span class="price-period">/mois</span>`;
+        let priceLine;
+        if (quoteOnly) {
+            priceLine = '<span class="price-amount">Sur devis</span>';
+        } else if (plan.price_cents === 0) {
+            priceLine = '<span class="price-amount">0€</span><span class="price-period">/mois</span>';
+        } else {
+            priceLine = `<span class="price-amount">${plan.price_eur.toFixed(0)}€</span><span class="price-period">/mois</span>`;
+        }
 
         const featuresHtml = (plan.features || [])
             .map(f => `<li>✅ ${esc(f)}</li>`).join('');
 
         let cta;
-        if (!getToken()) {
+        if (quoteOnly) {
+            // Enterprise : pas de checkout self-service, même pour les connectés.
+            cta = isCurrent
+                ? `<button class="btn btn-secondary btn-pricing" disabled>Plan actuel</button>`
+                : `<button class="btn btn-primary btn-pricing" data-action="request-quote" data-tier="${plan.tier}">✉️ Contacter les ventes</button>`;
+        } else if (!getToken()) {
             cta = `<button class="btn btn-primary btn-pricing" data-action="login-to-subscribe">Se connecter</button>`;
         } else if (isCurrent) {
             cta = `<button class="btn btn-secondary btn-pricing" disabled>Plan actuel</button>`;
@@ -139,12 +152,14 @@
 
         const badge = featured
             ? '<div class="pricing-badge">⭐ POPULAIRE</div>' : '';
+        const quoteBadge = quoteOnly
+            ? '<div class="pricing-badge pricing-badge-quote">🏢 ENTREPRISE</div>' : '';
         const current = isCurrent
             ? '<div class="pricing-badge pricing-badge-current">✓ ACTUEL</div>' : '';
 
         return `
-        <div class="pricing-card ${featured ? 'pricing-card-featured' : ''} ${isCurrent ? 'pricing-card-current' : ''}" data-tier="${plan.tier}">
-            ${current || badge}
+        <div class="pricing-card ${featured ? 'pricing-card-featured' : ''} ${isCurrent ? 'pricing-card-current' : ''} ${quoteOnly ? 'pricing-card-quote' : ''}" data-tier="${plan.tier}">
+            ${current || quoteBadge || badge}
             <div class="pricing-header">
                 <h3>${esc(plan.name)}</h3>
                 <div class="pricing-price">${priceLine}</div>
@@ -270,6 +285,9 @@
         root.querySelectorAll('[data-action="subscribe"]').forEach(btn => {
             btn.addEventListener('click', () => openCheckout(btn.dataset.tier));
         });
+        root.querySelectorAll('[data-action="request-quote"]').forEach(btn => {
+            btn.addEventListener('click', () => openQuoteModal());
+        });
         root.querySelectorAll('[data-action="login-to-subscribe"]').forEach(btn => {
             btn.addEventListener('click', () => {
                 // Ouvre la landing login si présente
@@ -301,6 +319,7 @@
     function openCheckout(tier) {
         const plan = (state.plans || []).find(p => p.tier === tier);
         if (!plan) { toast('Plan introuvable.', 'error'); return; }
+        if (plan.quote_only) { openQuoteModal(); return; }
         const modal = document.getElementById('checkout-modal');
         document.getElementById('checkout-title').textContent = `Passer au plan ${plan.name}`;
         const amountLabel = fmtEUR(plan.price_cents);
@@ -313,6 +332,96 @@
 
     function closeCheckout() {
         document.getElementById('checkout-modal').style.display = 'none';
+    }
+
+    // ---------------------------------------------------------------
+    // Modal "Contacter les ventes" (devis Enterprise)
+    // ---------------------------------------------------------------
+
+    function openQuoteModal() {
+        const modal = document.getElementById('quote-modal');
+        if (!modal) {
+            toast('Formulaire de devis indisponible.', 'error');
+            return;
+        }
+        const err = document.getElementById('quote-error');
+        const ok = document.getElementById('quote-success');
+        if (err) { err.style.display = 'none'; err.textContent = ''; }
+        if (ok) { ok.style.display = 'none'; ok.textContent = ''; }
+
+        // Pré-remplissage si user connecté
+        const form = document.getElementById('quote-form');
+        if (form) form.reset();
+        try {
+            const userData = JSON.parse(localStorage.getItem('userData') || '{}');
+            if (userData.email) {
+                const e = document.getElementById('quote-email');
+                if (e && !e.value) e.value = userData.email;
+            }
+            if (userData.username) {
+                const n = document.getElementById('quote-name');
+                if (n && !n.value) n.value = userData.username;
+            }
+        } catch (_) { /* ignore */ }
+
+        modal.style.display = 'flex';
+    }
+
+    function closeQuoteModal() {
+        const modal = document.getElementById('quote-modal');
+        if (modal) modal.style.display = 'none';
+    }
+
+    async function onQuoteSubmit(e) {
+        e.preventDefault();
+        const email = (document.getElementById('quote-email').value || '').trim();
+        const name = (document.getElementById('quote-name').value || '').trim();
+        const company = (document.getElementById('quote-company').value || '').trim();
+        const phone = (document.getElementById('quote-phone').value || '').trim();
+        const seats = document.getElementById('quote-seats').value;
+        const message = (document.getElementById('quote-message').value || '').trim();
+        const errEl = document.getElementById('quote-error');
+        const okEl = document.getElementById('quote-success');
+        errEl.style.display = 'none';
+        okEl.style.display = 'none';
+
+        if (!email || !email.includes('@')) {
+            errEl.textContent = 'Email valide requis.';
+            errEl.style.display = 'block';
+            return;
+        }
+
+        const btn = document.getElementById('quote-submit');
+        btn.disabled = true;
+        const oldLabel = btn.innerHTML;
+        btn.innerHTML = '⏳ Envoi…';
+        try {
+            const r = await fetch(`${BASE}/subscription/quote-request`, {
+                method: 'POST',
+                headers: authHeaders(),
+                body: JSON.stringify({
+                    email, contact_name: name, company_name: company,
+                    phone, seats_requested: seats || null, message,
+                }),
+            });
+            const body = await r.json().catch(() => ({}));
+            if (r.ok) {
+                okEl.textContent = body.message
+                    || 'Merci ! Notre équipe vous recontacte sous 2 jours ouvrés.';
+                okEl.style.display = 'block';
+                document.getElementById('quote-form').reset();
+                setTimeout(closeQuoteModal, 2500);
+            } else {
+                errEl.textContent = body.message || 'Erreur lors de l\'envoi.';
+                errEl.style.display = 'block';
+            }
+        } catch (err) {
+            errEl.textContent = 'Erreur réseau : ' + err.message;
+            errEl.style.display = 'block';
+        } finally {
+            btn.disabled = false;
+            btn.innerHTML = oldLabel;
+        }
     }
 
     function parseExpiry(s) {
@@ -405,6 +514,7 @@
         renderSubscriptionView,
         refreshTierBadge,
         openCheckout,
+        openQuoteModal,
     };
 
     // ---------------------------------------------------------------
@@ -437,6 +547,14 @@
 
         const overlay = document.querySelector('.checkout-modal-overlay');
         if (overlay) overlay.addEventListener('click', closeCheckout);
+
+        // Modal devis Enterprise
+        const quoteForm = document.getElementById('quote-form');
+        if (quoteForm) quoteForm.addEventListener('submit', onQuoteSubmit);
+        const quoteClose = document.getElementById('quote-close');
+        if (quoteClose) quoteClose.addEventListener('click', closeQuoteModal);
+        const quoteOverlay = document.querySelector('.quote-modal-overlay');
+        if (quoteOverlay) quoteOverlay.addEventListener('click', closeQuoteModal);
 
         // Landing : charge les plans dès le départ
         renderLandingPricing();

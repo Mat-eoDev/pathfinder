@@ -637,6 +637,16 @@
                    data-tooltip="Gérer votre abonnement">
                     💳 Abonnement
                 </a>
+                <a href="#" class="nav-dashboard-link nav-company-only" data-page="company"
+                   data-tooltip="Gérer votre entreprise et les licences"
+                   style="display:none;">
+                    🏢 Mon entreprise
+                </a>
+                <a href="#" class="nav-dashboard-link nav-admin-only" data-page="admin-companies"
+                   data-tooltip="Gérer les entreprises Enterprise (admin)"
+                   style="display:none;">
+                    🏢 Entreprises
+                </a>
                 <a href="#" class="nav-dashboard-link" data-page="profile"
                    data-tooltip="Gérer votre profil">
                     👤 Profil
@@ -1206,6 +1216,131 @@
             </div>
         </div>
 
+        <!-- Modal demande de devis Enterprise -->
+        <div id="quote-modal" class="checkout-modal quote-modal" style="display:none;">
+            <div class="checkout-modal-overlay quote-modal-overlay"></div>
+            <div class="checkout-modal-card">
+                <button class="checkout-modal-close" id="quote-close">×</button>
+                <h3>🏢 Plan Enterprise — demande de devis</h3>
+                <p class="checkout-disclaimer">
+                    Dites-nous en un peu plus sur votre équipe. Un membre de notre équipe commerciale
+                    vous recontacte sous <strong>2 jours ouvrés</strong> avec une proposition adaptée
+                    (nombre de licences, facturation, support).
+                </p>
+                <form id="quote-form" class="checkout-form" autocomplete="off">
+                    <div class="checkout-row">
+                        <label>
+                            Nom complet
+                            <input type="text" id="quote-name" maxlength="150" placeholder="Jean Dupont" required>
+                        </label>
+                        <label>
+                            Email professionnel
+                            <input type="email" id="quote-email" maxlength="255" placeholder="vous@entreprise.com" required>
+                        </label>
+                    </div>
+                    <div class="checkout-row">
+                        <label>
+                            Entreprise
+                            <input type="text" id="quote-company" maxlength="150" placeholder="Acme SAS">
+                        </label>
+                        <label>
+                            Téléphone
+                            <input type="tel" id="quote-phone" maxlength="50" placeholder="+33 1 23 45 67 89">
+                        </label>
+                    </div>
+                    <label>
+                        Nombre de licences estimées
+                        <input type="number" id="quote-seats" min="1" max="10000" placeholder="5">
+                    </label>
+                    <label>
+                        Contexte / besoins (optionnel)
+                        <textarea id="quote-message" rows="3" maxlength="2000" placeholder="Ex : audits mensuels sur 3 sites, besoin du mode Furtif, intégration SIEM…"></textarea>
+                    </label>
+                    <button type="submit" id="quote-submit" class="btn btn-primary checkout-submit">
+                        ✉️ Envoyer ma demande
+                    </button>
+                    <div id="quote-error" class="checkout-error" style="display:none;"></div>
+                    <div id="quote-success" class="checkout-success" style="display:none;"></div>
+                </form>
+            </div>
+        </div>
+
+        <!-- Page Mon entreprise (chef d'entreprise) -->
+        <div id="company-view" class="dashboard-container" style="display: none;">
+            <div class="subscription-container" id="company-container">
+                <div class="subscription-header">
+                    <h2>🏢 Mon entreprise</h2>
+                    <p class="subscription-subtitle">
+                        Gérez les licences PathFinder attribuées aux membres de votre équipe.
+                    </p>
+                </div>
+                <div id="company-summary" class="subscription-current">
+                    <div class="subscription-current-loading">Chargement…</div>
+                </div>
+                <h3 class="subscription-section-title">Attribuer une licence</h3>
+                <form id="company-add-form" class="company-add-form" autocomplete="off">
+                    <label>
+                        Email du membre (le compte doit déjà exister)
+                        <input type="email" id="company-add-email" placeholder="collegue@entreprise.com" required>
+                    </label>
+                    <button type="submit" class="btn btn-primary">➕ Attribuer une licence</button>
+                    <div id="company-add-error" class="checkout-error" style="display:none;"></div>
+                </form>
+                <h3 class="subscription-section-title">Membres</h3>
+                <div id="company-members" class="subscription-invoices">
+                    <div class="subscription-current-loading">Chargement…</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Page Admin Entreprises (Super Admin) -->
+        <div id="admin-companies-view" class="dashboard-container" style="display:none;">
+            <div class="subscription-container">
+                <div class="subscription-header">
+                    <h2>🏢 Gestion des entreprises Enterprise</h2>
+                    <p class="subscription-subtitle">
+                        Créez une entreprise, désignez un chef d'entreprise et attribuez-lui un nombre de licences.
+                    </p>
+                </div>
+
+                <h3 class="subscription-section-title">Créer une entreprise</h3>
+                <form id="admin-company-create" class="admin-company-form" autocomplete="off">
+                    <div class="row">
+                        <label>
+                            Nom de l'entreprise
+                            <input type="text" id="ac-name" maxlength="150" required placeholder="Acme SAS">
+                        </label>
+                        <label>
+                            Email du chef d'entreprise
+                            <input type="email" id="ac-owner" maxlength="255" required placeholder="chef@acme.com">
+                        </label>
+                        <label>
+                            Nombre de licences
+                            <input type="number" id="ac-licenses" min="1" max="10000" value="5" required>
+                        </label>
+                    </div>
+                    <label>
+                        Notes (optionnel)
+                        <textarea id="ac-notes" rows="2" placeholder="Ex : contrat signé le 12/04, facturé annuellement, 5 licences…"></textarea>
+                    </label>
+                    <div style="display:flex;gap:10px;align-items:center;">
+                        <button type="submit" class="btn btn-primary">➕ Créer l'entreprise</button>
+                        <div id="ac-error" class="checkout-error" style="display:none;flex:1"></div>
+                    </div>
+                </form>
+
+                <h3 class="subscription-section-title">Entreprises existantes</h3>
+                <div id="admin-companies-list" class="admin-companies-list">
+                    <div class="subscription-current-loading">Chargement…</div>
+                </div>
+
+                <h3 class="subscription-section-title">Demandes de devis en attente</h3>
+                <div id="admin-quote-requests" class="admin-companies-list">
+                    <div class="subscription-current-loading">Chargement…</div>
+                </div>
+            </div>
+        </div>
+
         <!-- Page Profil Utilisateur -->
         <div id="profile-view" class="dashboard-container" style="display: none;">
             <div class="profile-container">
@@ -1469,6 +1604,8 @@
     <script src="downloads.js"></script>
     <script src="admin-panel.js"></script>
     <script src="subscription.js"></script>
+    <script src="company.js"></script>
+    <script src="admin-companies.js"></script>
     <script src="app.js"></script>
     <script src="landing.js"></script>
     

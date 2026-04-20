@@ -250,7 +250,12 @@ function showDashboard() {
     
     // Rafraîchir le badge de tier à la connexion
     if (window.SubscriptionUI) window.SubscriptionUI.refreshTierBadge();
-    
+
+    // Afficher le lien "Mon entreprise" seulement pour les chefs d'entreprise
+    if (window.CompanyUI) window.CompanyUI.applyCompanyNav();
+    // Afficher le lien admin "Entreprises" seulement pour les super admins
+    if (window.AdminCompaniesUI) window.AdminCompaniesUI.applyAdminNav();
+
     // Afficher la vue Scans par défaut
     switchDashboardPage('scans');
 }
@@ -265,6 +270,10 @@ function switchDashboardPage(page) {
     document.getElementById('profile-view').style.display = 'none';
     const subView = document.getElementById('subscription-view');
     if (subView) subView.style.display = 'none';
+    const companyView = document.getElementById('company-view');
+    if (companyView) companyView.style.display = 'none';
+    const adminCompaniesView = document.getElementById('admin-companies-view');
+    if (adminCompaniesView) adminCompaniesView.style.display = 'none';
     
     // Afficher la vue demandée
     if (page === 'guide') {
@@ -282,6 +291,12 @@ function switchDashboardPage(page) {
     } else if (page === 'subscription') {
         if (subView) subView.style.display = 'block';
         if (window.SubscriptionUI) window.SubscriptionUI.renderSubscriptionView();
+    } else if (page === 'company') {
+        if (companyView) companyView.style.display = 'block';
+        if (window.CompanyUI) window.CompanyUI.renderCompanyView();
+    } else if (page === 'admin-companies') {
+        if (adminCompaniesView) adminCompaniesView.style.display = 'block';
+        if (window.AdminCompaniesUI) window.AdminCompaniesUI.renderAdminCompaniesView();
     }
     
     // Mettre à jour les liens actifs
