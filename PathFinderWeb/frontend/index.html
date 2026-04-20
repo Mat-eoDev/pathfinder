@@ -376,68 +376,9 @@
                 <h2 class="section-title">Tarifs Transparents</h2>
                 <p class="section-subtitle">Choisissez le plan adapté à vos besoins</p>
                 
-                <div class="pricing-grid">
-                    <div class="pricing-card">
-                        <div class="pricing-header">
-                            <h3>Gratuit</h3>
-                            <div class="pricing-price">
-                                <span class="price-amount">0€</span>
-                                <span class="price-period">/mois</span>
-                            </div>
-                        </div>
-                        <ul class="pricing-features">
-                            <li>✅ Scans illimités</li>
-                            <li>✅ Jusqu'à 50 appareils</li>
-                            <li>✅ Détection OS basique</li>
-                            <li>✅ Rapports PDF</li>
-                            <li>✅ Dashboard web</li>
-                            <li>❌ CVE Scanner</li>
-                            <li>❌ Directory Buster</li>
-                            <li>❌ Support prioritaire</li>
-                        </ul>
-                        <button class="btn btn-secondary btn-pricing">Commencer</button>
-                    </div>
-                    
-                    <div class="pricing-card pricing-card-featured">
-                        <div class="pricing-badge">⭐ POPULAIRE</div>
-                        <div class="pricing-header">
-                            <h3>Pro</h3>
-                            <div class="pricing-price">
-                                <span class="price-amount">29€</span>
-                                <span class="price-period">/mois</span>
-                            </div>
-                        </div>
-                        <ul class="pricing-features">
-                            <li>✅ Tout du plan Gratuit</li>
-                            <li>✅ Appareils illimités</li>
-                            <li>✅ Détection OS avancée</li>
-                            <li>✅ CVE Scanner complet</li>
-                            <li>✅ Directory Buster</li>
-                            <li>✅ Historique illimité</li>
-                            <li>✅ Alertes en temps réel</li>
-                            <li>✅ Support prioritaire</li>
-                        </ul>
-                        <button class="btn btn-primary btn-pricing">Choisir Pro</button>
-                    </div>
-                    
-                    <div class="pricing-card">
-                        <div class="pricing-header">
-                            <h3>Enterprise</h3>
-                            <div class="pricing-price">
-                                <span class="price-amount">Sur mesure</span>
-                            </div>
-                        </div>
-                        <ul class="pricing-features">
-                            <li>✅ Tout du plan Pro</li>
-                            <li>✅ Multi-utilisateurs</li>
-                            <li>✅ API complète</li>
-                            <li>✅ Scans programmés</li>
-                            <li>✅ Support 24/7</li>
-                            <li>✅ Formation sur site</li>
-                            <li>✅ SLA garanti</li>
-                        </ul>
-                        <button class="btn btn-secondary btn-pricing">Nous contacter</button>
-                    </div>
+                <div class="pricing-grid" id="landing-pricing-grid">
+                    <!-- Rempli dynamiquement par subscription.js via /api/subscription/plans -->
+                    <div class="pricing-card pricing-card-skeleton">Chargement des offres…</div>
                 </div>
             </div>
         </section>
@@ -692,12 +633,17 @@
                     🎫 Support
                     <span id="tickets-badge" class="nav-badge" style="display: none;">0</span>
                 </a>
+                <a href="#" class="nav-dashboard-link" data-page="subscription"
+                   data-tooltip="Gérer votre abonnement">
+                    💳 Abonnement
+                </a>
                 <a href="#" class="nav-dashboard-link" data-page="profile"
                    data-tooltip="Gérer votre profil">
                     👤 Profil
                 </a>
             </div>
             <div class="nav-user">
+                <span id="user-tier-badge" class="tier-badge tier-free" style="display:none" data-tooltip="Votre plan PathFinder">Free</span>
                 <span id="user-role-badge" style="display: none;"></span>
                 <span id="user-info" data-tooltip="Utilisateur connecté"></span>
                 <button id="logout-btn" class="btn btn-secondary" 
@@ -1188,6 +1134,78 @@
             </div>
         </div>
 
+        <!-- Page Mon Abonnement -->
+        <div id="subscription-view" class="dashboard-container" style="display: none;">
+            <div class="subscription-container">
+                <div class="subscription-header">
+                    <h2>💳 Mon abonnement</h2>
+                    <p class="subscription-subtitle">Gérez votre plan et consultez vos factures.</p>
+                </div>
+
+                <!-- Carte résumé plan actif -->
+                <div id="subscription-current-card" class="subscription-current">
+                    <div class="subscription-current-loading">Chargement…</div>
+                </div>
+
+                <!-- Grille des plans pour upgrade/downgrade -->
+                <h3 class="subscription-section-title">Changer de plan</h3>
+                <div class="pricing-grid pricing-grid-compact" id="dashboard-pricing-grid">
+                    <div class="pricing-card pricing-card-skeleton">Chargement des offres…</div>
+                </div>
+
+                <!-- Factures -->
+                <h3 class="subscription-section-title">Historique des factures</h3>
+                <div id="subscription-invoices" class="subscription-invoices">
+                    <div class="subscription-current-loading">Chargement…</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Modal checkout (faux paiement CB) -->
+        <div id="checkout-modal" class="checkout-modal" style="display:none;">
+            <div class="checkout-modal-overlay"></div>
+            <div class="checkout-modal-card">
+                <button class="checkout-modal-close" id="checkout-close">×</button>
+                <h3 id="checkout-title">Passer au plan Pro</h3>
+                <div class="checkout-price-line">
+                    <span id="checkout-amount-label">19,00 €</span>
+                    <span class="checkout-period">/ mois</span>
+                </div>
+                <p class="checkout-disclaimer">
+                    🧪 <strong>Paiement factice</strong> — aucune vraie transaction n'a lieu.<br>
+                    Utilisez <code>4242 4242 4242 4242</code> (succès) ou
+                    <code>4000 0000 0000 0002</code> (refus) pour tester.
+                </p>
+                <form id="checkout-form" class="checkout-form" autocomplete="off">
+                    <label>
+                        Nom sur la carte
+                        <input type="text" id="checkout-holder" value="Jean Dupont" required>
+                    </label>
+                    <label>
+                        Numéro de carte
+                        <input type="text" id="checkout-number" value="4242 4242 4242 4242"
+                               inputmode="numeric" maxlength="23" required>
+                    </label>
+                    <div class="checkout-row">
+                        <label>
+                            MM / AA
+                            <input type="text" id="checkout-expiry" value="12/30"
+                                   maxlength="5" inputmode="numeric" required>
+                        </label>
+                        <label>
+                            CVV
+                            <input type="text" id="checkout-cvv" value="123"
+                                   maxlength="4" inputmode="numeric" required>
+                        </label>
+                    </div>
+                    <button type="submit" id="checkout-submit" class="btn btn-primary checkout-submit">
+                        Payer <span id="checkout-submit-amount">19,00 €</span>
+                    </button>
+                    <div id="checkout-error" class="checkout-error" style="display:none;"></div>
+                </form>
+            </div>
+        </div>
+
         <!-- Page Profil Utilisateur -->
         <div id="profile-view" class="dashboard-container" style="display: none;">
             <div class="profile-container">
@@ -1450,6 +1468,7 @@
     <script src="tickets.js"></script>
     <script src="downloads.js"></script>
     <script src="admin-panel.js"></script>
+    <script src="subscription.js"></script>
     <script src="app.js"></script>
     <script src="landing.js"></script>
     

@@ -32,12 +32,25 @@
                                HorizontalOptions="Start"
                                FontAttributes="Italic" />
                         
-                        <Label x:Name="UserLabel"
-                               Text="👤 Connecté"
-                               FontSize="12"
-                               TextColor="#10B981"
-                               HorizontalOptions="Start"
-                               Margin="0,5,0,0" />
+                        <HorizontalStackLayout Spacing="8" Margin="0,5,0,0">
+                            <Label x:Name="UserLabel"
+                                   Text="👤 Connecté"
+                                   FontSize="12"
+                                   TextColor="#10B981"
+                                   VerticalOptions="Center" />
+                            <Border x:Name="TierBadge"
+                                    Padding="8,2"
+                                    BackgroundColor="#334155"
+                                    Stroke="#94A3B8"
+                                    StrokeThickness="1">
+                                <Border.StrokeShape><RoundRectangle CornerRadius="12"/></Border.StrokeShape>
+                                <Label x:Name="TierBadgeLabel"
+                                       Text="🆓 Free"
+                                       FontSize="11"
+                                       FontAttributes="Bold"
+                                       TextColor="#E2E8F0"/>
+                            </Border>
+                        </HorizontalStackLayout>
                     </VerticalStackLayout>
                     
                     <Button Grid.Column="1"

@@ -56,6 +56,14 @@ public partial class LoginPage : ContentPage
 					Preferences.Set("user_username", result.user.username);
 					Preferences.Set("user_id", result.user.id);
 
+					// Tier d'abonnement (free / pro / enterprise) et date de fin.
+					var tier = result.user.subscription?.tier ?? "free";
+					Preferences.Set("subscription_tier", tier);
+					Preferences.Set("subscription_ends_at",
+						result.user.subscription?.ends_at ?? string.Empty);
+					Preferences.Set("subscription_auto_renew",
+						result.user.subscription?.auto_renew ?? true);
+
 					// Persiste le token sur disque pour que les runners
 					// de scans planifiés (lancés par launchd/schtasks) s'authentifient.
 					try { SystemScheduler.PersistAuth(API_URL, result.token); }
@@ -134,8 +142,16 @@ public partial class LoginPage : ContentPage
 		public int id { get; set; }
 		public string email { get; set; }
 		public string username { get; set; }
+		public SubscriptionInfo subscription { get; set; }
 	}
-	
+
+	private class SubscriptionInfo
+	{
+		public string tier { get; set; }
+		public string ends_at { get; set; }
+		public bool auto_renew { get; set; } = true;
+	}
+
 	private class ErrorResponse
 	{
 		public string message { get; set; }

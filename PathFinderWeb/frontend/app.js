@@ -248,6 +248,9 @@ function showDashboard() {
     // Charger les données
     loadDashboardData();
     
+    // Rafraîchir le badge de tier à la connexion
+    if (window.SubscriptionUI) window.SubscriptionUI.refreshTierBadge();
+    
     // Afficher la vue Scans par défaut
     switchDashboardPage('scans');
 }
@@ -260,6 +263,8 @@ function switchDashboardPage(page) {
     document.getElementById('scans-view').style.display = 'none';
     document.getElementById('tickets-view').style.display = 'none';
     document.getElementById('profile-view').style.display = 'none';
+    const subView = document.getElementById('subscription-view');
+    if (subView) subView.style.display = 'none';
     
     // Afficher la vue demandée
     if (page === 'guide') {
@@ -274,6 +279,9 @@ function switchDashboardPage(page) {
     } else if (page === 'profile') {
         document.getElementById('profile-view').style.display = 'block';
         loadProfileData();
+    } else if (page === 'subscription') {
+        if (subView) subView.style.display = 'block';
+        if (window.SubscriptionUI) window.SubscriptionUI.renderSubscriptionView();
     }
     
     // Mettre à jour les liens actifs

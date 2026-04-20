@@ -25,6 +25,7 @@ from pentest_engine import (
     network_mapping, test_exploit, crack_hash, reverse_dns_lookup, whois_lookup,
     start_packet_capture, stop_packet_capture, spoof_mac_address, reset_mac_address, monitor_bandwidth
 )
+import subscription_plans as subs
 
 app = Flask(__name__)
 CORS(app)  # Permettre les requêtes cross-origin
@@ -177,6 +178,77 @@ def token_required(f):
     
     return decorated
 
+
+# ========== HELPERS ABONNEMENT ==========
+
+def _get_user_row(user_id):
+    """Lit la ligne user complète (incluant les champs abonnement)."""
+    conn = get_db_connection()
+    if not conn:
+        return None
+    cursor = conn.cursor(dictionary=True)
+    try:
+        cursor.execute(
+            "SELECT id, email, username, role, "
+            "       subscription_tier, subscription_started_at, "
+            "       subscription_ends_at, subscription_auto_renew "
+            "FROM users WHERE id = %s",
+            (user_id,)
+        )
+        return cursor.fetchone()
+    finally:
+        cursor.close()
+        conn.close()
+
+
+def _current_tier(user_id):
+    """Tier effectif (en tenant compte de l'expiration)."""
+    row = _get_user_row(user_id)
+    if not row:
+        return subs.TIER_FREE
+    return subs.effective_tier(row)
+
+
+def _count_scans_last_30d(user_id):
+    conn = get_db_connection()
+    if not conn:
+        return 0
+    cursor = conn.cursor()
+    try:
+        cursor.execute(
+            "SELECT COUNT(*) FROM scans "
+            "WHERE user_id = %s AND scan_date >= (NOW() - INTERVAL 30 DAY)",
+            (user_id,)
+        )
+        return cursor.fetchone()[0] or 0
+    finally:
+        cursor.close()
+        conn.close()
+
+
+def require_feature(feature_key):
+    """Décorateur : bloque si le tier n'a pas la feature.
+
+    feature_key peut être :
+      - 'can_export', 'can_use_pentest' (bool)
+    Utilise require_mode / require_scan_quota / require_schedule_quota pour
+    les cas quantitatifs.
+    """
+    def deco(f):
+        @wraps(f)
+        def wrapper(current_user_id, *args, **kwargs):
+            tier = _current_tier(current_user_id)
+            if not subs.get_limit(tier, feature_key):
+                return jsonify({
+                    'message': 'Cette fonctionnalité nécessite un abonnement supérieur.',
+                    'required_feature': feature_key,
+                    'current_tier': tier,
+                }), 402  # Payment Required
+            return f(current_user_id, *args, **kwargs)
+        return wrapper
+    return deco
+
+
 # ========== ROUTES D'AUTHENTIFICATION ==========
 
 @app.route('/api/register', methods=['POST'])
@@ -262,7 +334,10 @@ def login():
 
     try:
         cursor.execute(
-            "SELECT id, email, username, role, password_hash FROM users WHERE email = %s",
+            "SELECT id, email, username, role, password_hash, "
+            "       subscription_tier, subscription_started_at, "
+            "       subscription_ends_at, subscription_auto_renew "
+            "FROM users WHERE email = %s",
             (email,)
         )
         user = cursor.fetchone()
@@ -291,6 +366,7 @@ def login():
         # Log l'activité
         log_activity(user['id'], 'login', f'Connexion de {user["username"]}')
         
+        effective = subs.effective_tier(user)
         return jsonify({
             'message': 'Connexion réussie',
             'token': token,
@@ -298,7 +374,13 @@ def login():
                 'id': user['id'],
                 'email': user['email'],
                 'username': user['username'],
-                'role': user['role']
+                'role': user['role'],
+                'subscription': {
+                    'tier': effective,
+                    'ends_at': user['subscription_ends_at'].isoformat()
+                                if user.get('subscription_ends_at') else None,
+                    'auto_renew': bool(user.get('subscription_auto_renew', 1)),
+                },
             }
         }), 200
         
@@ -307,6 +389,220 @@ def login():
     finally:
         cursor.close()
         conn.close()
+
+# ========== ROUTES ABONNEMENTS ==========
+
+@app.route('/api/subscription/plans', methods=['GET'])
+def subscription_plans_list():
+    """Liste publique des plans (pour la page pricing)."""
+    return jsonify({'plans': subs.all_plans_public()}), 200
+
+
+@app.route('/api/subscription/me', methods=['GET'])
+@token_required
+def subscription_me(current_user_id):
+    """État de l'abonnement courant + usage actuel + limites."""
+    row = _get_user_row(current_user_id)
+    if not row:
+        return jsonify({'message': 'Utilisateur introuvable'}), 404
+    tier = subs.effective_tier(row)
+    plan = subs.get_plan(tier).to_dict()
+    used_scans_30d = _count_scans_last_30d(current_user_id)
+    return jsonify({
+        'tier': tier,
+        'plan': plan,
+        'active': subs.is_subscription_active(row),
+        'started_at': row['subscription_started_at'].isoformat()
+                        if row.get('subscription_started_at') else None,
+        'ends_at': row['subscription_ends_at'].isoformat()
+                        if row.get('subscription_ends_at') else None,
+        'auto_renew': bool(row.get('subscription_auto_renew', 1)),
+        'usage': {
+            'scans_last_30d': used_scans_30d,
+            'scans_limit': subs.scan_quota(tier),
+        },
+    }), 200
+
+
+@app.route('/api/subscription/checkout', methods=['POST'])
+@limiter.limit("10 per minute; 60 per hour", key_func=get_remote_address)
+@token_required
+def subscription_checkout(current_user_id):
+    """Souscription à un plan via simulation de paiement CB.
+
+    Body JSON attendu :
+      {
+        "tier": "pro" | "enterprise",
+        "card": {
+          "number": "4242424242424242",
+          "exp_month": 12, "exp_year": 30,
+          "cvv": "123",
+          "holder": "Jean Dupont"
+        }
+      }
+    """
+    data = request.get_json(silent=True) or {}
+    tier = subs.normalize_tier(data.get('tier'))
+    if tier == subs.TIER_FREE:
+        return jsonify({'message': 'Choisissez un plan payant.'}), 400
+
+    card = data.get('card') or {}
+    validation = subs.validate_fake_card(
+        card.get('number', ''),
+        card.get('exp_month', 0),
+        card.get('exp_year', 0),
+        card.get('cvv', ''),
+    )
+
+    plan = subs.get_plan(tier)
+    amount = plan.price_cents
+
+    conn = get_db_connection()
+    if not conn:
+        return jsonify({'message': 'DB indisponible'}), 500
+    cursor = conn.cursor(dictionary=True)
+    try:
+        invoice_number = "PF-" + datetime.datetime.utcnow().strftime("%Y%m%d-%H%M%S") + \
+                         f"-{current_user_id:04d}-{secrets.token_hex(3)}"
+
+        if not validation['ok']:
+            # On log quand même une facture "refused" pour l'historique
+            cursor.execute(
+                "INSERT INTO fake_invoices "
+                "(user_id, subscription_id, tier, amount_cents, currency, "
+                " status, payment_method, invoice_number, issued_at) "
+                "VALUES (%s, NULL, %s, %s, %s, 'refused', %s, %s, NOW())",
+                (current_user_id, tier, amount, plan.currency,
+                 validation.get('method_label', 'Carte invalide'), invoice_number)
+            )
+            conn.commit()
+            return jsonify({
+                'message': validation['reason'],
+                'status': 'refused',
+                'invoice_number': invoice_number,
+            }), 402
+
+        # Paiement OK → créer/prolonger l'abonnement
+        now = datetime.datetime.utcnow()
+        ends = now + datetime.timedelta(days=30)
+        method = validation['method_label']
+
+        # Nouvelle ligne subscriptions
+        cursor.execute(
+            "INSERT INTO subscriptions "
+            "(user_id, tier, status, started_at, ends_at, amount_cents, "
+            " currency, fake_payment_method) "
+            "VALUES (%s, %s, 'active', %s, %s, %s, %s, %s)",
+            (current_user_id, tier, now, ends, amount, plan.currency, method)
+        )
+        sub_id = cursor.lastrowid
+
+        # Marque les anciennes subscriptions actives comme canceled
+        cursor.execute(
+            "UPDATE subscriptions SET status='canceled', canceled_at=NOW() "
+            "WHERE user_id=%s AND id<>%s AND status='active'",
+            (current_user_id, sub_id)
+        )
+
+        # Met à jour users
+        cursor.execute(
+            "UPDATE users SET subscription_tier=%s, "
+            "  subscription_started_at=%s, subscription_ends_at=%s, "
+            "  subscription_auto_renew=1 "
+            "WHERE id=%s",
+            (tier, now, ends, current_user_id)
+        )
+
+        # Facture payée
+        cursor.execute(
+            "INSERT INTO fake_invoices "
+            "(user_id, subscription_id, tier, amount_cents, currency, "
+            " status, payment_method, invoice_number, issued_at) "
+            "VALUES (%s, %s, %s, %s, %s, 'paid', %s, %s, NOW())",
+            (current_user_id, sub_id, tier, amount, plan.currency,
+             method, invoice_number)
+        )
+        conn.commit()
+
+        log_activity(current_user_id, 'subscription_checkout',
+                     f'Souscription {plan.name} réussie',
+                     f'{amount/100:.2f}{plan.currency} via {method}')
+
+        return jsonify({
+            'status': 'paid',
+            'tier': tier,
+            'ends_at': ends.isoformat(),
+            'amount_cents': amount,
+            'currency': plan.currency,
+            'invoice_number': invoice_number,
+            'payment_method': method,
+        }), 200
+
+    except Error as e:
+        conn.rollback()
+        return jsonify({'message': f'Erreur DB: {e}'}), 500
+    finally:
+        cursor.close()
+        conn.close()
+
+
+@app.route('/api/subscription/cancel', methods=['POST'])
+@token_required
+def subscription_cancel(current_user_id):
+    """Désactive l'auto-renew. L'accès reste jusqu'à ends_at."""
+    conn = get_db_connection()
+    if not conn:
+        return jsonify({'message': 'DB indisponible'}), 500
+    cursor = conn.cursor()
+    try:
+        cursor.execute(
+            "UPDATE users SET subscription_auto_renew=0 WHERE id=%s",
+            (current_user_id,)
+        )
+        cursor.execute(
+            "UPDATE subscriptions SET status='canceled', canceled_at=NOW() "
+            "WHERE user_id=%s AND status='active'",
+            (current_user_id,)
+        )
+        conn.commit()
+        log_activity(current_user_id, 'subscription_cancel',
+                     'Annulation du renouvellement automatique')
+        return jsonify({'status': 'canceled',
+                        'message': "L'abonnement restera actif jusqu'à son échéance."}), 200
+    except Error as e:
+        conn.rollback()
+        return jsonify({'message': f'Erreur: {e}'}), 500
+    finally:
+        cursor.close()
+        conn.close()
+
+
+@app.route('/api/subscription/invoices', methods=['GET'])
+@token_required
+def subscription_invoices(current_user_id):
+    """Historique des factures factices de l'utilisateur."""
+    conn = get_db_connection()
+    if not conn:
+        return jsonify({'message': 'DB indisponible'}), 500
+    cursor = conn.cursor(dictionary=True)
+    try:
+        cursor.execute(
+            "SELECT invoice_number, tier, amount_cents, currency, status, "
+            "       payment_method, issued_at "
+            "FROM fake_invoices WHERE user_id=%s "
+            "ORDER BY issued_at DESC LIMIT 100",
+            (current_user_id,)
+        )
+        rows = cursor.fetchall()
+        for r in rows:
+            if r.get('issued_at'):
+                r['issued_at'] = r['issued_at'].isoformat()
+            r['amount_eur'] = (r.get('amount_cents') or 0) / 100.0
+        return jsonify({'invoices': rows}), 200
+    finally:
+        cursor.close()
+        conn.close()
+
 
 # ========== ROUTES DES SCANS ==========
 
@@ -318,13 +614,35 @@ def create_scan(current_user_id):
     
     network_range = data.get('network_range')
     results = data.get('results', [])
-    mode = data.get('mode', 'fast')
-    if mode not in ('fast', 'full'):
+    mode = (data.get('mode') or 'fast').lower()
+    if mode not in ('fast', 'full', 'stealth'):
         mode = 'fast'
 
     if not network_range or not results:
         return jsonify({'message': 'network_range et results requis'}), 400
-    
+
+    # ----- Gating abonnement -----
+    tier = _current_tier(current_user_id)
+    if not subs.can_use_mode(tier, mode):
+        return jsonify({
+            'message': f"Le mode '{mode}' n'est pas inclus dans votre plan.",
+            'current_tier': tier,
+            'allowed_modes': subs.allowed_modes(tier),
+            'required_feature': 'allowed_scan_modes',
+        }), 402
+
+    quota = subs.scan_quota(tier)
+    if quota is not None:
+        used = _count_scans_last_30d(current_user_id)
+        if used >= quota:
+            return jsonify({
+                'message': f"Quota de {quota} scans/mois atteint sur le plan {tier}.",
+                'current_tier': tier,
+                'scans_used': used,
+                'scans_limit': quota,
+                'required_feature': 'scans_per_month',
+            }), 402
+
     conn = get_db_connection()
     if not conn:
         return jsonify({'message': 'Erreur de connexion à la base de données'}), 500
@@ -1417,8 +1735,9 @@ def serve_static(path):
 PENTEST_CODE = os.environ.get('PATHFINDER_PENTEST_CODE')
 
 def verify_pentest_access():
-    """Autorise uniquement les utilisateurs admin (role JWT == 'admin').
-    Si PATHFINDER_PENTEST_CODE est défini, exige en plus le header X-Pentest-Code correspondant."""
+    """Autorise uniquement les admins avec un abonnement Enterprise actif.
+    Si PATHFINDER_PENTEST_CODE est défini, exige en plus le header X-Pentest-Code.
+    """
     token = request.headers.get('Authorization', '')
     if token.startswith('Bearer '):
         token = token[7:]
@@ -1431,6 +1750,10 @@ def verify_pentest_access():
     if data.get('role') != 'admin':
         return False
     if PENTEST_CODE and request.headers.get('X-Pentest-Code') != PENTEST_CODE:
+        return False
+    # Gating abonnement : pentest = feature Enterprise.
+    user_id = data.get('user_id')
+    if user_id and not subs.can_use_pentest(_current_tier(user_id)):
         return False
     return True
 

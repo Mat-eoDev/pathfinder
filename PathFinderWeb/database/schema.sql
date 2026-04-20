@@ -11,10 +11,51 @@ CREATE TABLE IF NOT EXISTS users (
     username VARCHAR(100) NOT NULL,
     password_hash VARCHAR(255) NOT NULL,
     role ENUM('user', 'admin') DEFAULT 'user' NOT NULL,
+    -- Abonnement : 'free' | 'pro' | 'enterprise'. ends_at=NULL => pas d'échéance (free).
+    subscription_tier VARCHAR(20) NOT NULL DEFAULT 'free',
+    subscription_started_at DATETIME NULL,
+    subscription_ends_at DATETIME NULL,
+    subscription_auto_renew TINYINT(1) NOT NULL DEFAULT 1,
     created_at DATETIME NOT NULL,
     last_login DATETIME,
     INDEX idx_email (email),
-    INDEX idx_role (role)
+    INDEX idx_role (role),
+    INDEX idx_tier (subscription_tier)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Historique des abonnements (audit + permet de voir les changements de plan).
+CREATE TABLE IF NOT EXISTS subscriptions (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    user_id INT NOT NULL,
+    tier VARCHAR(20) NOT NULL,
+    status ENUM('active', 'canceled', 'expired', 'failed') NOT NULL DEFAULT 'active',
+    started_at DATETIME NOT NULL,
+    ends_at DATETIME NULL,
+    canceled_at DATETIME NULL,
+    amount_cents INT NOT NULL DEFAULT 0,
+    currency VARCHAR(3) NOT NULL DEFAULT 'EUR',
+    fake_payment_method VARCHAR(50) NULL,   -- ex: "visa ****4242"
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    INDEX idx_user_status (user_id, status),
+    INDEX idx_ends_at (ends_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Fausses factures générées lors des checkout / renouvellements.
+CREATE TABLE IF NOT EXISTS fake_invoices (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    user_id INT NOT NULL,
+    subscription_id INT NULL,
+    tier VARCHAR(20) NOT NULL,
+    amount_cents INT NOT NULL,
+    currency VARCHAR(3) NOT NULL DEFAULT 'EUR',
+    status ENUM('paid', 'refused', 'refunded') NOT NULL DEFAULT 'paid',
+    payment_method VARCHAR(50) NOT NULL,    -- ex: "visa ****4242"
+    invoice_number VARCHAR(40) NOT NULL UNIQUE,
+    issued_at DATETIME NOT NULL,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (subscription_id) REFERENCES subscriptions(id) ON DELETE SET NULL,
+    INDEX idx_user_issued (user_id, issued_at DESC),
+    INDEX idx_status (status)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- Table des scans

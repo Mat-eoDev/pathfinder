@@ -51,6 +51,15 @@ public partial class MainPage : ContentPage
 			
 			// Configurer le header d'authentification
 			httpClient.DefaultRequestHeaders.Add("Authorization", $"Bearer {token}");
+
+			// Appliquer le gating d'abonnement (badge + griser les modes indispos)
+			ApplySubscriptionGating();
+			// Rafraîchit silencieusement le tier depuis le serveur au démarrage.
+			_ = Task.Run(async () =>
+			{
+				await SubscriptionService.RefreshAsync(API_URL);
+				MainThread.BeginInvokeOnMainThread(ApplySubscriptionGating);
+			});
 			
 			Debug.WriteLine("✅ MainPage: Headers configurés");
 			
@@ -238,8 +247,66 @@ public partial class MainPage : ContentPage
 		ScanMode mode = ScanMode.Fast;
 		if (ModeFullRadio.IsChecked) mode = ScanMode.Full;
 		else if (ModeStealthRadio?.IsChecked == true) mode = ScanMode.Stealth;
+
+		// Garde-fou client : évite un 402 inutile si l'utilisateur Free sélectionne Full.
+		if (!SubscriptionService.CanUseMode(ModeArg(mode)))
+		{
+			await DisplayAlert(
+				$"Mode {ModeLabel(mode)} indisponible",
+				$"Votre plan {SubscriptionService.TierLabel} ne permet pas le mode {ModeLabel(mode)}.\n\n" +
+				"Passez au plan Pro (Rapide + Complet) ou Enterprise (+ Furtif) depuis le dashboard web.",
+				"OK");
+			return;
+		}
+
 		var rawTargets = TargetEditor.Text ?? "";
 		await PerformScan(rawTargets, mode);
+	}
+
+	/// <summary>
+	/// Applique visuellement le gating d'abonnement aux contrôles UI.
+	/// </summary>
+	private void ApplySubscriptionGating()
+	{
+		try
+		{
+			TierBadgeLabel.Text = $"{SubscriptionService.TierEmoji} {SubscriptionService.TierLabel}";
+			TierBadge.BackgroundColor = SubscriptionService.CurrentTier switch
+			{
+				SubscriptionService.TierEnterprise => Color.FromArgb("#F59E0B"),
+				SubscriptionService.TierPro        => Color.FromArgb("#3B82F6"),
+				_                                  => Color.FromArgb("#334155"),
+			};
+
+			var canFull    = SubscriptionService.CanUseMode("full");
+			var canStealth = SubscriptionService.CanUseMode("stealth");
+
+			ModeFullRadio.IsEnabled = canFull;
+			ModeFullRadio.Opacity   = canFull ? 1.0 : 0.45;
+			ModeStealthRadio.IsEnabled = canStealth;
+			ModeStealthRadio.Opacity   = canStealth ? 1.0 : 0.45;
+
+			if (!canFull && ModeFullRadio.IsChecked) ModeFastRadio.IsChecked = true;
+			if (!canStealth && ModeStealthRadio.IsChecked) ModeFastRadio.IsChecked = true;
+
+			if (!canStealth)
+				ModeFullRadio.Content = canFull ? "🔎 Complet (40+ ports)" : "🔒 Complet (Pro+)";
+			if (!canStealth)
+				ModeStealthRadio.Content = "🔒 Furtif (Enterprise)";
+
+			if (!canFull)
+			{
+				ModeHintLabel.Text = "Plan Free : seul le mode Rapide est disponible. Passez Pro pour le mode Complet ou Enterprise pour Furtif.";
+			}
+			else if (!canStealth)
+			{
+				ModeHintLabel.Text = "Plan Pro : modes Rapide + Complet. Passez Enterprise pour débloquer le mode Furtif.";
+			}
+		}
+		catch (Exception ex)
+		{
+			Debug.WriteLine($"ApplySubscriptionGating: {ex.Message}");
+		}
 	}
 
 	private static string ModeLabel(ScanMode m) => m switch
