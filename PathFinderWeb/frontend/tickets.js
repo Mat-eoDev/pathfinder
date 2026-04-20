@@ -67,32 +67,38 @@ function displayTickets(tickets, showAdminInfo = false) {
             'question': '❓ Question'
         };
         
-        const adminInfo = showAdminInfo && ticket.username ? 
+        const adminInfo = showAdminInfo && ticket.username ?
             `<div style="color: var(--warning); font-size: 12px; font-weight: 600; margin-bottom: 8px;">
-                👤 ${ticket.username} (${ticket.email})
+                👤 ${escapeHtml(ticket.username)} (${escapeHtml(ticket.email || '')})
             </div>` : '';
-        
-        const unreadBadge = ticket.unread_count > 0 ? 
-            `<span class="unread-badge">${ticket.unread_count} non lu${ticket.unread_count > 1 ? 's' : ''}</span>` : '';
-        
+
+        const unreadCount = Number(ticket.unread_count) || 0;
+        const unreadBadge = unreadCount > 0 ?
+            `<span class="unread-badge">${unreadCount} non lu${unreadCount > 1 ? 's' : ''}</span>` : '';
+
+        const messageCount = Number(ticket.message_count) || 0;
+        const ticketStatus = String(ticket.status || '');
+        const ticketPriority = String(ticket.priority || '');
+        const ticketCategory = String(ticket.category || '');
+
         return `
-            <div class="ticket-item" onclick="openTicketDetail(${ticket.id})">
+            <div class="ticket-item" onclick="openTicketDetail(${Number(ticket.id)})">
                 ${adminInfo}
                 <div class="ticket-item-header">
                     <div class="ticket-item-title">
-                        <h3>${ticket.subject}</h3>
+                        <h3>${escapeHtml(ticket.subject || '')}</h3>
                         <div class="ticket-item-meta">
-                            <span class="ticket-id-badge">#${ticket.id}</span>
-                            <span class="ticket-status-badge ${ticket.status}">${statusLabels[ticket.status]}</span>
-                            <span class="ticket-priority-badge ${ticket.priority}">${priorityLabels[ticket.priority]}</span>
-                            <span class="ticket-category-badge">${categoryLabels[ticket.category]}</span>
+                            <span class="ticket-id-badge">#${Number(ticket.id)}</span>
+                            <span class="ticket-status-badge ${escapeHtml(ticketStatus)}">${escapeHtml(statusLabels[ticketStatus] || ticketStatus)}</span>
+                            <span class="ticket-priority-badge ${escapeHtml(ticketPriority)}">${escapeHtml(priorityLabels[ticketPriority] || ticketPriority)}</span>
+                            <span class="ticket-category-badge">${escapeHtml(categoryLabels[ticketCategory] || ticketCategory)}</span>
                         </div>
                     </div>
                 </div>
                 <div class="ticket-item-info">
-                    <span>Créé le ${formatDate(ticket.created_at)}</span>
+                    <span>Créé le ${escapeHtml(formatDate(ticket.created_at))}</span>
                     <div class="ticket-message-count">
-                        💬 ${ticket.message_count || 0} message${(ticket.message_count || 0) > 1 ? 's' : ''}
+                        💬 ${messageCount} message${messageCount > 1 ? 's' : ''}
                         ${unreadBadge}
                     </div>
                 </div>
@@ -243,19 +249,21 @@ function displayChatMessages(messages) {
     }
     
     container.innerHTML = messages.map(msg => {
-        const isAdmin = msg.is_admin_reply;
-        const authorName = msg.username || 'Utilisateur';
-        const initial = authorName.charAt(0).toUpperCase();
-        
+        const isAdmin = !!msg.is_admin_reply;
+        const authorName = String(msg.username || 'Utilisateur');
+        const initial = (authorName.charAt(0) || '?').toUpperCase();
+        // Échapper le message PUIS convertir les \n en <br> pour préserver les sauts de ligne sans permettre d'HTML
+        const safeMessage = escapeHtml(String(msg.message || '')).replace(/\n/g, '<br>');
+
         return `
             <div class="chat-message ${isAdmin ? 'admin' : ''}">
-                <div class="chat-avatar">${initial}</div>
+                <div class="chat-avatar">${escapeHtml(initial)}</div>
                 <div class="chat-bubble">
                     <div class="chat-bubble-header">
-                        <span class="chat-bubble-author">${isAdmin ? '👑 ' : ''}${authorName}</span>
-                        <span class="chat-bubble-time">${formatRelativeDate(msg.created_at)}</span>
+                        <span class="chat-bubble-author">${isAdmin ? '👑 ' : ''}${escapeHtml(authorName)}</span>
+                        <span class="chat-bubble-time">${escapeHtml(formatRelativeDate(msg.created_at))}</span>
                     </div>
-                    <div class="chat-bubble-message">${msg.message}</div>
+                    <div class="chat-bubble-message">${safeMessage}</div>
                 </div>
             </div>
         `;

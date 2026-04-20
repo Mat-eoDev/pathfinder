@@ -9,8 +9,11 @@ from flask_cors import CORS
 import mysql.connector
 from mysql.connector import Error
 import hashlib
+import bcrypt
 import jwt
 import datetime
+import secrets
+import warnings
 from functools import wraps
 import json
 import os
@@ -24,8 +27,21 @@ from pentest_engine import (
 app = Flask(__name__)
 CORS(app)  # Permettre les requêtes cross-origin
 
-# Configuration
-app.config['SECRET_KEY'] = os.getenv('PATHFINDER_SECRET_KEY', 'pathfinder-secret-key-change-in-production')
+# ----- Secret JWT : exigé en prod, généré éphémèrement en debug -----
+_secret = os.getenv('PATHFINDER_SECRET_KEY')
+if not _secret:
+    if os.getenv('FLASK_DEBUG') == '1':
+        _secret = secrets.token_urlsafe(64)
+        warnings.warn(
+            "PATHFINDER_SECRET_KEY absente : un secret éphémère a été généré (mode debug). "
+            "Tous les JWT seront invalidés à chaque redémarrage."
+        )
+    else:
+        raise RuntimeError(
+            "PATHFINDER_SECRET_KEY doit être définie en production. "
+            "Générer une valeur sûre : python -c \"import secrets; print(secrets.token_urlsafe(64))\""
+        )
+app.config['SECRET_KEY'] = _secret
 app.config['MYSQL_HOST'] = os.getenv('PATHFINDER_MYSQL_HOST', 'localhost')
 app.config['MYSQL_PORT'] = int(os.getenv('PATHFINDER_MYSQL_PORT', '3306'))  # Port MySQL standard (3306) ou MAMP (8889)
 app.config['MYSQL_USER'] = os.getenv('PATHFINDER_MYSQL_USER', 'root')
@@ -61,6 +77,56 @@ def get_db_connection():
                 print(f"Erreur de connexion MySQL (socket): {e2}")
         print(f"Erreur de connexion MySQL (host:port): {e}")
         return None
+
+# ----- Hashage des mots de passe -----
+# bcrypt pour les nouveaux mots de passe ; les anciens hashes SHA-256 (64 chars hex) sont
+# vérifiés en compatibilité descendante, puis ré-hashés en bcrypt au prochain login réussi.
+
+def hash_password(password: str) -> str:
+    """Retourne un hash bcrypt UTF-8 prêt pour stockage."""
+    return bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt(rounds=12)).decode('utf-8')
+
+
+def _is_legacy_sha256(stored_hash: str) -> bool:
+    """Détecte un hash SHA-256 hex (64 chars hex), héritage des anciennes versions."""
+    return len(stored_hash) == 64 and all(c in '0123456789abcdef' for c in stored_hash.lower())
+
+
+def verify_password(password: str, stored_hash: str) -> bool:
+    """Vérifie un mot de passe contre un hash bcrypt OU un legacy SHA-256."""
+    if not stored_hash:
+        return False
+    if stored_hash.startswith('$2'):
+        try:
+            return bcrypt.checkpw(password.encode('utf-8'), stored_hash.encode('utf-8'))
+        except (ValueError, TypeError):
+            return False
+    if _is_legacy_sha256(stored_hash):
+        return hashlib.sha256(password.encode('utf-8')).hexdigest() == stored_hash
+    return False
+
+
+def _upgrade_legacy_hash_if_needed(user_id: int, password: str, stored_hash: str) -> None:
+    """Si le hash est en legacy SHA-256, le ré-hash en bcrypt et l'enregistre."""
+    if not stored_hash or not _is_legacy_sha256(stored_hash):
+        return
+    new_hash = hash_password(password)
+    conn = get_db_connection()
+    if not conn:
+        return
+    try:
+        cur = conn.cursor()
+        cur.execute("UPDATE users SET password_hash = %s WHERE id = %s", (new_hash, user_id))
+        conn.commit()
+        cur.close()
+    except Error:
+        pass
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass
+
 
 # Décorateur d'authentification
 def token_required(f):
@@ -100,9 +166,10 @@ def register():
     
     if not email or not password or not username:
         return jsonify({'message': 'Email, username et password requis'}), 400
-    
-    # Hasher le mot de passe
-    password_hash = hashlib.sha256(password.encode()).hexdigest()
+    if len(password) < 8:
+        return jsonify({'message': 'Le mot de passe doit contenir au moins 8 caractères'}), 400
+
+    password_hash = hash_password(password)
     
     conn = get_db_connection()
     if not conn:
@@ -145,24 +212,25 @@ def login():
     
     if not email or not password:
         return jsonify({'message': 'Email et password requis'}), 400
-    
-    password_hash = hashlib.sha256(password.encode()).hexdigest()
-    
+
     conn = get_db_connection()
     if not conn:
         return jsonify({'message': 'Erreur de connexion à la base de données'}), 500
-    
+
     cursor = conn.cursor(dictionary=True)
-    
+
     try:
         cursor.execute(
-            "SELECT id, email, username, role FROM users WHERE email = %s AND password_hash = %s",
-            (email, password_hash)
+            "SELECT id, email, username, role, password_hash FROM users WHERE email = %s",
+            (email,)
         )
         user = cursor.fetchone()
-        
-        if not user:
+
+        if not user or not verify_password(password, user['password_hash']):
             return jsonify({'message': 'Email ou mot de passe incorrect'}), 401
+
+        # Migration transparente SHA-256 -> bcrypt au premier login réussi
+        _upgrade_legacy_hash_if_needed(user['id'], password, user['password_hash'])
         
         # Créer le token JWT (valide 24h)
         token = jwt.encode({
@@ -585,28 +653,26 @@ def change_password(current_user_id):
     
     if not current_password or not new_password:
         return jsonify({'message': 'Mots de passe requis'}), 400
-    
-    current_password_hash = hashlib.sha256(current_password.encode()).hexdigest()
-    new_password_hash = hashlib.sha256(new_password.encode()).hexdigest()
-    
+    if len(new_password) < 8:
+        return jsonify({'message': 'Le nouveau mot de passe doit contenir au moins 8 caractères'}), 400
+
     conn = get_db_connection()
     if not conn:
         return jsonify({'message': 'Erreur de connexion'}), 500
-    
+
     cursor = conn.cursor(dictionary=True)
-    
+
     try:
-        # Vérifier le mot de passe actuel
         cursor.execute(
             "SELECT password_hash FROM users WHERE id = %s",
             (current_user_id,)
         )
         user = cursor.fetchone()
-        
-        if not user or user['password_hash'] != current_password_hash:
+
+        if not user or not verify_password(current_password, user['password_hash']):
             return jsonify({'message': 'Mot de passe actuel incorrect'}), 401
-        
-        # Mettre à jour le mot de passe
+
+        new_password_hash = hash_password(new_password)
         cursor.execute(
             "UPDATE users SET password_hash = %s WHERE id = %s",
             (new_password_hash, current_user_id)

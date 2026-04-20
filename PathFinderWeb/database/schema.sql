@@ -26,6 +26,7 @@ CREATE TABLE IF NOT EXISTS scans (
     alive_hosts INT NOT NULL DEFAULT 0,
     critical_hosts INT NOT NULL DEFAULT 0,
     high_risk_hosts INT NOT NULL DEFAULT 0,
+    mode VARCHAR(20) DEFAULT 'manual',
     scan_date DATETIME NOT NULL,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
     INDEX idx_user_id (user_id),
@@ -100,15 +101,14 @@ CREATE TABLE IF NOT EXISTS ticket_messages (
     INDEX idx_created_at (created_at DESC)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
--- Insérer un super admin (mot de passe: admin123)
--- Hash SHA256 de "admin123" = 240be518fabd2724ddb6f04eeb1da5967448d7e831c08c8fa822809f74c720a9
-INSERT IGNORE INTO users (email, username, password_hash, role, created_at) 
-VALUES ('admin@pathfinder.local', 'Super Admin', '240be518fabd2724ddb6f04eeb1da5967448d7e831c08c8fa822809f74c720a9', 'admin', NOW());
+-- Comptes seed (à changer immédiatement en production).
+-- Hashes bcrypt (cost 12). Mots de passe d'origine : admin123 / test123.
+-- L'app supporte aussi les anciens hashes SHA-256 et les ré-hash en bcrypt au prochain login.
+INSERT IGNORE INTO users (email, username, password_hash, role, created_at)
+VALUES ('admin@pathfinder.local', 'Super Admin', '$2b$12$IXqNaEQgNmaSd6CsxhVG3.PHU9oFPwqy5J6ohNaW58oLFs6voGAPW', 'admin', NOW());
 
--- Insérer un utilisateur test normal (mot de passe: test123)
--- Hash SHA256 de "test123" = ecd71870d1963316a97e3ac3408c9835ad8cf0f3c1bc703527c30265534f75ae
-INSERT IGNORE INTO users (email, username, password_hash, role, created_at) 
-VALUES ('user@pathfinder.local', 'Test User', 'ecd71870d1963316a97e3ac3408c9835ad8cf0f3c1bc703527c30265534f75ae', 'user', NOW());
+INSERT IGNORE INTO users (email, username, password_hash, role, created_at)
+VALUES ('user@pathfinder.local', 'Test User', '$2b$12$YeFm8tUnbz4h/SQpaYHsj.ixw5V8H9JvDla1XLo.MuRaqj3jEafh.', 'user', NOW());
 
 -- Afficher le résumé
 SELECT 'Base de données PathFinder créée avec succès !' as Message;

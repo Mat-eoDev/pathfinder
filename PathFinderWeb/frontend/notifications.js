@@ -29,11 +29,12 @@ class NotificationSystem {
         notification.innerHTML = `
             <div class="notification-icon">${icons[type] || icons.info}</div>
             <div class="notification-content">
-                <div class="notification-message">${message}</div>
+                <div class="notification-message"></div>
             </div>
             <button class="notification-close" onclick="this.parentElement.remove()">×</button>
         `;
-        
+        notification.querySelector('.notification-message').textContent = String(message);
+
         this.container.appendChild(notification);
         
         // Animation d'entrée
@@ -75,10 +76,11 @@ class NotificationSystem {
                 <div class="spinner"></div>
             </div>
             <div class="notification-content">
-                <div class="notification-message">${message}</div>
+                <div class="notification-message"></div>
             </div>
         `;
-        
+        notification.querySelector('.notification-message').textContent = String(message);
+
         this.container.appendChild(notification);
         setTimeout(() => notification.classList.add('notification-show'), 10);
         

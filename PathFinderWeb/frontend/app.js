@@ -519,17 +519,17 @@ function displayScansList(scans, showAdmin) {
     }
     
     listEl.innerHTML = scans.map(scan => {
-        const userInfo = showAdmin && scan.user_name ? 
+        const userInfo = showAdmin && scan.user_name ?
             `<div style="color: var(--warning); font-size: 12px; font-weight: 600; margin-bottom: 8px;">
-                👤 ${scan.user_name} (${scan.user_email})
+                👤 ${escapeHtml(scan.user_name)} (${escapeHtml(scan.user_email || '')})
             </div>` : '';
-        
+
         return `
-            <div class="scan-item" onclick="viewScanDetails(${scan.id})">
+            <div class="scan-item" onclick="viewScanDetails(${Number(scan.id)})">
                 ${userInfo}
                 <div class="scan-item-header">
-                    <div class="scan-item-title">🌐 ${scan.network_range}</div>
-                    <div class="scan-item-date">${formatDate(scan.scan_date)}</div>
+                    <div class="scan-item-title">🌐 ${escapeHtml(scan.network_range || '')}</div>
+                    <div class="scan-item-date">${escapeHtml(formatDate(scan.scan_date))}</div>
                 </div>
                 <div class="scan-item-stats">
                     <div class="scan-stat scan-stat-success">
@@ -604,8 +604,8 @@ function displayScanDetails(scan) {
                     ${score != null ? `${score}<span class="pf-score-unit">/100</span>` : '—'}
                 </div>
                 <div class="pf-summary-meta">
-                    <div class="pf-summary-title">Score de sécurité${grade ? ` · Grade ${grade}` : ''}</div>
-                    <div class="pf-summary-sub">${scan.network_range || 'Plage inconnue'} · ${formatDate(scan.scan_date)}</div>
+                    <div class="pf-summary-title">Score de sécurité${grade ? ` · Grade ${escapeHtml(String(grade))}` : ''}</div>
+                    <div class="pf-summary-sub">${escapeHtml(scan.network_range || 'Plage inconnue')} · ${escapeHtml(formatDate(scan.scan_date))}</div>
                 </div>
             </div>
             <div class="pf-summary-stats">
@@ -804,15 +804,16 @@ function renderHosts(filteredHosts, totalCount) {
         const riskColor = riskColors[riskLevel] || 'var(--text-muted)';
         const riskLabelMap = { critical: 'CRITIQUE', high: 'ÉLEVÉ', medium: 'MOYEN', low: 'FAIBLE', info: 'INFO' };
             
+            const ttlNum = Number(host.ttl);
             return `
             <div class="host-card ${riskClass}" style="background: var(--dark); padding: 20px; border-radius: 12px; margin-bottom: 15px; border-left: 4px solid ${riskColor}; transition: all 0.3s ease;">
                 <div class="host-header" style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 15px;">
                         <div>
                         <div class="host-ip" style="font-size: 18px; font-weight: 600; color: var(--text); margin-bottom: 5px;">
-                            💻 ${host.ip_address || 'IP inconnue'}
+                            💻 ${escapeHtml(host.ip_address || 'IP inconnue')}
                         </div>
                         <div class="host-os" style="font-size: 14px; color: var(--text-muted);">
-                            ${host.hostname || 'Nom inconnu'} • ${host.os_detected || 'OS inconnu'} ${host.ttl ? `• TTL: ${host.ttl}` : ''}
+                            ${escapeHtml(host.hostname || 'Nom inconnu')} • ${escapeHtml(host.os_detected || 'OS inconnu')} ${Number.isFinite(ttlNum) ? `• TTL: ${ttlNum}` : ''}
                         </div>
                         </div>
                         <div style="text-align: right;">
@@ -825,13 +826,13 @@ function renderHosts(filteredHosts, totalCount) {
                     </div>
                 </div>
                 <div class="host-ports" style="display: flex; flex-wrap: wrap; gap: 8px;">
-                    ${openPorts.length > 0 ? 
+                    ${openPorts.length > 0 ?
                         openPorts.map(port => `
                             <span class="port-badge" style="display: inline-flex; align-items: center; gap: 5px; padding: 6px 12px; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; font-size: 13px; font-weight: 500;">
                                 <span style="color: var(--primary);">🔌</span>
-                                <span style="color: var(--text);">Port ${port}</span>
+                                <span style="color: var(--text);">Port ${escapeHtml(String(port))}</span>
                             </span>
-                        `).join('') 
+                        `).join('')
                         : '<span style="color: var(--text-muted); font-size: 14px;">✅ Aucun port ouvert</span>'
                     }
                     </div>
@@ -1687,9 +1688,9 @@ function displayActivityLogs(logs) {
             <div class="activity-log-item">
                 <div class="activity-icon">${icons[log.action] || '📋'}</div>
                 <div class="activity-content">
-                    <div class="activity-title">${log.description}</div>
-                    <div class="activity-date">${formatRelativeDate(log.timestamp)}</div>
-                    ${log.details ? `<div class="activity-details">${log.details}</div>` : ''}
+                    <div class="activity-title">${escapeHtml(log.description || '')}</div>
+                    <div class="activity-date">${escapeHtml(formatRelativeDate(log.timestamp))}</div>
+                    ${log.details ? `<div class="activity-details">${escapeHtml(String(log.details))}</div>` : ''}
                 </div>
             </div>
         `;
