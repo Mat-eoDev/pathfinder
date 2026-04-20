@@ -3,7 +3,7 @@ using System.Text.Json.Nodes;
 
 namespace PathFinder;
 
-public enum ScanMode { Fast, Full }
+public enum ScanMode { Fast, Full, Stealth }
 
 public enum ScheduleFrequency { Hourly, Daily, Weekly }
 
@@ -25,7 +25,7 @@ public class ScheduledScan
 		{
 			["id"] = Id,
 			["targets"] = Targets,
-			["mode"] = Mode == ScanMode.Full ? "full" : "fast",
+			["mode"] = Mode switch { ScanMode.Full => "full", ScanMode.Stealth => "stealth", _ => "fast" },
 			["frequency"] = Frequency switch { ScheduleFrequency.Hourly => "hourly", ScheduleFrequency.Weekly => "weekly", _ => "daily" },
 			["time"] = $"{TimeOfDay.Hours:D2}:{TimeOfDay.Minutes:D2}",
 			["dow"] = DayOfWeek,
@@ -43,7 +43,7 @@ public class ScheduledScan
 		{
 			Id = (string?)o["id"] ?? Guid.NewGuid().ToString("N"),
 			Targets = (string?)o["targets"] ?? "",
-			Mode = (string?)o["mode"] == "full" ? ScanMode.Full : ScanMode.Fast,
+			Mode = (string?)o["mode"] switch { "full" => ScanMode.Full, "stealth" => ScanMode.Stealth, _ => ScanMode.Fast },
 			Frequency = (string?)o["frequency"] switch
 			{
 				"hourly" => ScheduleFrequency.Hourly,

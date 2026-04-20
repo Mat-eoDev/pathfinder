@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.Net;
 using System.Net.NetworkInformation;
 using System.Net.Sockets;
@@ -20,6 +20,8 @@ public partial class MainPage : ContentPage
 	// Liste de ports par mode
 	private static readonly string FAST_PORTS = "21,22,23,25,53,80,110,139,143,443,445,3389,8080";
 	private static readonly string FULL_PORTS = "20,21,22,23,25,53,80,110,111,135,139,143,443,445,465,587,993,995,1433,1521,3306,3389,5000,5001,5432,5900,5985,5986,6379,8000,8080,8443,8888,9090,9200,27017,27018,50000";
+	// Stealth : même surface que Full mais avec timeouts longs et délais aléatoires côté Python.
+	private static readonly string STEALTH_PORTS = FULL_PORTS;
 	
 	public MainPage()
 	{
@@ -233,10 +235,33 @@ public partial class MainPage : ContentPage
 
 	private async void OnScanClicked(object sender, EventArgs e)
 	{
-		var mode = ModeFullRadio.IsChecked ? ScanMode.Full : ScanMode.Fast;
+		ScanMode mode = ScanMode.Fast;
+		if (ModeFullRadio.IsChecked) mode = ScanMode.Full;
+		else if (ModeStealthRadio?.IsChecked == true) mode = ScanMode.Stealth;
 		var rawTargets = TargetEditor.Text ?? "";
 		await PerformScan(rawTargets, mode);
 	}
+
+	private static string ModeLabel(ScanMode m) => m switch
+	{
+		ScanMode.Full => "Complet",
+		ScanMode.Stealth => "Furtif",
+		_ => "Rapide"
+	};
+
+	private static string ModeArg(ScanMode m) => m switch
+	{
+		ScanMode.Full => "full",
+		ScanMode.Stealth => "stealth",
+		_ => "fast"
+	};
+
+	private static (string ports, int workers) ModeParams(ScanMode m) => m switch
+	{
+		ScanMode.Full    => (FULL_PORTS,    100),
+		ScanMode.Stealth => (STEALTH_PORTS, 20),
+		_                => (FAST_PORTS,    150)
+	};
 
 	private async void OnScheduleClicked(object sender, EventArgs e)
 	{
@@ -334,7 +359,7 @@ public partial class MainPage : ContentPage
 		ProgressBarUI.Progress = 0;
 		ProgressStatusIcon.Text = "⏳";
 		ProgressTitleLabel.Text = isScheduled ? "Scan programmé en cours…" : "Scan en cours…";
-		ProgressDetailsLabel.Text = $"Préparation de {targets.Count} cible(s) — mode {(mode == ScanMode.Full ? "Complet" : "Rapide")}";
+		ProgressDetailsLabel.Text = $"Préparation de {targets.Count} cible(s) — mode {ModeLabel(mode)}";
 		ProgressElapsedLabel.Text = "⏱ 0s";
 
 		var sw = Stopwatch.StartNew();
@@ -357,7 +382,7 @@ public partial class MainPage : ContentPage
 			{
 				var target = targets[i];
 				ProgressTitleLabel.Text = $"🎯 Scan {i + 1}/{targets.Count} — {target}";
-				ProgressDetailsLabel.Text = $"Mode {(mode == ScanMode.Full ? "Complet" : "Rapide")} • {successCount} succès • {failCount} échec(s)";
+				ProgressDetailsLabel.Text = $"Mode {ModeLabel(mode)} • {successCount} succès • {failCount} échec(s)";
 				ProgressBarUI.Progress = (double)i / targets.Count;
 				ResultsLabel.Text = combinedResultsText.Length == 0
 					? $"⏳ Scan en cours sur {target}…"
@@ -369,7 +394,7 @@ public partial class MainPage : ContentPage
 					var targetData = lastScanData;
 
 					combinedResultsText.AppendLine($"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-					combinedResultsText.AppendLine($"🎯 CIBLE : {target}  ({(mode == ScanMode.Full ? "Complet" : "Rapide")})");
+					combinedResultsText.AppendLine($"🎯 CIBLE : {target}  ({ModeLabel(mode)})");
 					combinedResultsText.AppendLine($"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
 					combinedResultsText.AppendLine(text);
 					combinedResultsText.AppendLine();
@@ -441,7 +466,7 @@ public partial class MainPage : ContentPage
 		try
 		{
 			var resultsJson = scanResults?.ToJsonString() ?? "[]";
-			var modeStr = mode == ScanMode.Full ? "full" : "fast";
+			var modeStr = ModeArg(mode);
 			var escapedRange = networkRange.Replace("\\", "\\\\").Replace("\"", "\\\"");
 			var payloadJson = $"{{\"network_range\":\"{escapedRange}\",\"mode\":\"{modeStr}\",\"results\":{resultsJson}}}";
 
@@ -713,13 +738,13 @@ public partial class MainPage : ContentPage
 				pythonPath = "python3"; // Dernier recours
 			}
 			
-			var ports = mode == ScanMode.Fast ? FAST_PORTS : FULL_PORTS;
-			var workers = mode == ScanMode.Fast ? 150 : 100;
+			var (ports, workers) = ModeParams(mode);
+			var modeArg = ModeArg(mode);
 
 			var startInfo = new ProcessStartInfo
 			{
 				FileName = pythonPath,
-				Arguments = $"\"{scriptPath}\" \"{target}\" --workers {workers} --ports \"{ports}\"",
+				Arguments = $"\"{scriptPath}\" \"{target}\" --mode {modeArg} --workers {workers} --ports \"{ports}\"",
 				UseShellExecute = false,
 				RedirectStandardOutput = true,
 				RedirectStandardError = true,

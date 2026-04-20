@@ -13,16 +13,67 @@ import platform
 import subprocess
 import socket
 from concurrent.futures import ThreadPoolExecutor, as_completed
+import random
 import re
 import json
 import csv
 import ssl
+import time
 import datetime
 import urllib.request
 import urllib.error
 from typing import List, Dict, Tuple
 import os
 import sys
+
+# ---------------------------------------------------------------------------
+# Profils de scan
+# ---------------------------------------------------------------------------
+# fast    : rapide, peu de ports, deep-probe off, pas de délai
+# full    : exhaustif, deep-probe on (envoie des requêtes pour banniériser HTTP/SMTP/...)
+# stealth : furtif, moins de parallélisme, délais aléatoires entre connexions
+SCAN_PROFILES: Dict[str, Dict] = {
+    "fast": {
+        "port_timeout": 0.8,
+        "banner_timeout": 1.0,
+        "deep_probe": False,
+        "jitter": (0.0, 0.0),
+        "recommended_workers": 150,
+    },
+    "full": {
+        "port_timeout": 1.5,
+        "banner_timeout": 2.0,
+        "deep_probe": True,
+        "jitter": (0.0, 0.0),
+        "recommended_workers": 100,
+    },
+    "stealth": {
+        "port_timeout": 2.5,
+        "banner_timeout": 2.0,
+        "deep_probe": True,
+        "jitter": (0.4, 1.6),  # délai aléatoire par connexion
+        "recommended_workers": 20,
+    },
+}
+
+# Probes envoyés pour faire parler les services silencieux (HTTP/SMTP/RDP…)
+# Clé : numéro de port, valeur : bytes à envoyer après connexion.
+DEEP_PROBES: Dict[int, bytes] = {
+    80:   b"GET / HTTP/1.0\r\nHost: scan\r\nUser-Agent: PathFinder\r\n\r\n",
+    8000: b"GET / HTTP/1.0\r\nHost: scan\r\nUser-Agent: PathFinder\r\n\r\n",
+    8080: b"GET / HTTP/1.0\r\nHost: scan\r\nUser-Agent: PathFinder\r\n\r\n",
+    8888: b"GET / HTTP/1.0\r\nHost: scan\r\nUser-Agent: PathFinder\r\n\r\n",
+    9090: b"GET / HTTP/1.0\r\nHost: scan\r\nUser-Agent: PathFinder\r\n\r\n",
+    443:  b"GET / HTTP/1.0\r\nHost: scan\r\nUser-Agent: PathFinder\r\n\r\n",
+    8443: b"GET / HTTP/1.0\r\nHost: scan\r\nUser-Agent: PathFinder\r\n\r\n",
+    25:   b"EHLO pathfinder.local\r\n",
+    587:  b"EHLO pathfinder.local\r\n",
+    465:  b"EHLO pathfinder.local\r\n",
+    110:  b"CAPA\r\n",
+    143:  b"a001 CAPABILITY\r\n",
+    6379: b"INFO\r\n",
+    9200: b"GET / HTTP/1.0\r\n\r\n",
+}
 
 # Import des modules additionnels
 try:
@@ -278,20 +329,61 @@ def arp_table() -> Dict[str, str]:
         pass
     return out
 
-def scan_port(ip: str, port: int, timeout: float = 1.5) -> Tuple[int, bool, str]:
-    """Tentative de connexion TCP stricte avec banner grabbing."""
+def scan_port(ip: str, port: int, timeout: float = 1.5,
+              banner_timeout: float = 1.0, deep_probe: bool = False,
+              jitter: Tuple[float, float] = (0.0, 0.0)) -> Tuple[int, bool, str]:
+    """Tentative de connexion TCP stricte avec banner grabbing.
+
+    Args:
+        timeout: timeout de connexion TCP.
+        banner_timeout: timeout pour récupérer la bannière.
+        deep_probe: si True, envoie un probe applicatif (HTTP GET, EHLO...)
+                    pour faire parler les services qui n'envoient rien par défaut.
+        jitter: (min, max) délai aléatoire avant connexion, pour le mode stealth.
+    """
+    if jitter[1] > 0:
+        time.sleep(random.uniform(jitter[0], jitter[1]))
+
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     s.settimeout(timeout)
     try:
-        # Connexion TCP - retourne 0 si succès
         result = s.connect_ex((ip, port))
         if result == 0:
-            # Port vraiment ouvert - essayer de lire la bannière
+            banner = ""
             try:
-                s.settimeout(1.0)
-                banner = s.recv(1024).decode('utf-8', errors='ignore').strip()
-            except socket.timeout:
-                banner = ""
+                s.settimeout(banner_timeout)
+                # Premier essai : lecture passive (SSH, FTP, SMTP, Redis... parlent d'eux-mêmes)
+                try:
+                    banner = s.recv(1024).decode('utf-8', errors='ignore').strip()
+                except socket.timeout:
+                    banner = ""
+
+                # Si rien reçu et deep_probe activé, on envoie une requête applicative
+                if not banner and deep_probe and port in DEEP_PROBES:
+                    try:
+                        s.sendall(DEEP_PROBES[port])
+                        s.settimeout(banner_timeout)
+                        data = s.recv(2048).decode('utf-8', errors='ignore')
+                        # Pour HTTP, on garde Server + première ligne de status
+                        if data:
+                            lines = data.splitlines()
+                            keep = []
+                            for line in lines[:20]:
+                                if not line.strip():
+                                    continue
+                                low = line.lower()
+                                if (low.startswith("server:")
+                                        or low.startswith("x-powered-by:")
+                                        or low.startswith("http/")
+                                        or line.startswith("220 ")
+                                        or line.startswith("250 ")
+                                        or line.startswith("+OK")
+                                        or line.startswith("*")
+                                        or "redis_version" in low):
+                                    keep.append(line.strip())
+                            banner = " | ".join(keep[:5]) if keep else data.strip()[:200]
+                    except Exception:
+                        pass
             except Exception:
                 banner = ""
             finally:
@@ -577,7 +669,21 @@ def detect_device_type(ip: str) -> str:
     except Exception:
         return ""
 
-def worker_scan_host(ip: str, ports: List[int], timeout_port: float=0.8) -> Dict:
+def worker_scan_host(ip: str, ports: List[int], timeout_port: float=0.8,
+                     profile: Dict=None) -> Dict:
+    """Scanne un hôte selon un profil (fast/full/stealth).
+
+    profile permet de surcharger timeout, deep_probe, jitter.
+    timeout_port est conservé pour rétro-compat mais profile prime si fourni.
+    """
+    if profile is None:
+        profile = SCAN_PROFILES["fast"]
+
+    port_timeout = profile.get("port_timeout", timeout_port)
+    banner_timeout = profile.get("banner_timeout", 1.0)
+    deep_probe = profile.get("deep_probe", False)
+    jitter = profile.get("jitter", (0.0, 0.0))
+
     result = {
         "ip": ip, 
         "alive": False, 
@@ -625,7 +731,11 @@ def worker_scan_host(ip: str, ports: List[int], timeout_port: float=0.8) -> Dict
     critical_services = []
     
     for port in ports:
-        port_res = scan_port(ip, port, timeout=timeout_port)
+        port_res = scan_port(ip, port,
+                             timeout=port_timeout,
+                             banner_timeout=banner_timeout,
+                             deep_probe=deep_probe,
+                             jitter=jitter)
         if port_res[1]:
             open_ports.append(port)
             if port_res[2]:
@@ -918,19 +1028,30 @@ def pretty_save(results: List[Dict], out_json: str=None, out_csv: str=None):
 def main():
     parser = argparse.ArgumentParser(description="Network scanner + basic vulnerability indicators")
     parser.add_argument("target", help="CIDR or range")
-    parser.add_argument("--workers", type=int, default=200)
+    parser.add_argument("--workers", type=int, default=0,
+                        help="Nombre de threads. 0 = auto selon le mode.")
     parser.add_argument("--ports", type=str, default=",".join(map(str, DEFAULT_PORTS)))
+    parser.add_argument("--mode", choices=["fast", "full", "stealth"], default="full",
+                        help="Profil de scan : fast (rapide), full (exhaustif, deep-probe), "
+                             "stealth (furtif, lent, délais aléatoires)")
     parser.add_argument("--out-json", default="scan_report.json")
     parser.add_argument("--out-csv", default="scan_report.csv")
     args = parser.parse_args()
 
+    profile = SCAN_PROFILES[args.mode]
+    workers = args.workers if args.workers > 0 else profile["recommended_workers"]
+
     ips = parse_ip_range(args.target)
     ports = [int(p) for p in args.ports.split(",") if p.strip()]
-    print(f"Scan {len(ips)} IPs sur ports {ports} avec {args.workers} workers — ceci peut prendre du temps.")
+    print(f"Scan {len(ips)} IPs sur ports {ports} "
+          f"avec {workers} workers (mode={args.mode}) "
+          f"— ceci peut prendre du temps.")
 
     results = []
-    with ThreadPoolExecutor(max_workers=args.workers) as ex:
-        futures = {ex.submit(worker_scan_host, ip, ports): ip for ip in ips}
+    with ThreadPoolExecutor(max_workers=workers) as ex:
+        futures = {ex.submit(worker_scan_host, ip, ports,
+                             profile["port_timeout"], profile): ip
+                   for ip in ips}
         for fut in as_completed(futures):
             ip = futures[fut]
             try:

@@ -45,6 +45,7 @@
                                 <Picker.Items>
                                     <x:String>⚡ Rapide</x:String>
                                     <x:String>🔎 Complet</x:String>
+                                    <x:String>🥷 Furtif</x:String>
                                 </Picker.Items>
                             </Picker>
                         </VerticalStackLayout>

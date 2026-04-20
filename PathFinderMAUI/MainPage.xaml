@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8" ?>
+﻿<?xml version="1.0" encoding="utf-8" ?>
 <ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
              xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
              x:Class="PathFinder.MainPage"
@@ -127,7 +127,7 @@
 
                     <Border BackgroundColor="#0A0A0F" StrokeThickness="1" Stroke="#8B5CF6" Padding="12">
                         <Border.StrokeShape><RoundRectangle CornerRadius="10"/></Border.StrokeShape>
-                        <Grid ColumnDefinitions="*,*" ColumnSpacing="12" RowDefinitions="Auto,Auto">
+                        <Grid ColumnDefinitions="*,*,*" ColumnSpacing="12" RowDefinitions="Auto,Auto">
                             <RadioButton Grid.Row="0" Grid.Column="0"
                                          x:Name="ModeFastRadio"
                                          GroupName="ScanMode"
@@ -141,9 +141,15 @@
                                          Content="🔎 Complet (40+ ports)"
                                          TextColor="#E2E8F0"
                                          FontSize="14"/>
-                            <Label Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="2"
+                            <RadioButton Grid.Row="0" Grid.Column="2"
+                                         x:Name="ModeStealthRadio"
+                                         GroupName="ScanMode"
+                                         Content="🥷 Furtif (lent)"
+                                         TextColor="#E2E8F0"
+                                         FontSize="14"/>
+                            <Label Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="3"
                                    x:Name="ModeHintLabel"
-                                   Text="Rapide : services clés (FTP, SSH, HTTP, SMB, RDP…). Idéal pour un premier passage."
+                                   Text="Rapide : premier passage. Complet : 40+ ports + deep banner + CVE live NVD. Furtif : délais aléatoires, moins détectable par un IDS."
                                    FontSize="11" TextColor="#64748B" Margin="0,6,0,0"/>
                         </Grid>
                     </Border>

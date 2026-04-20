@@ -54,7 +54,12 @@ public partial class ScheduledScansPage : ContentPage
 		{
 			Id = _editingId ?? Guid.NewGuid().ToString("N"),
 			Targets = targets,
-			Mode = ModePicker.SelectedIndex == 1 ? ScanMode.Full : ScanMode.Fast,
+			Mode = ModePicker.SelectedIndex switch
+			{
+				1 => ScanMode.Full,
+				2 => ScanMode.Stealth,
+				_ => ScanMode.Fast
+			},
 			Frequency = FrequencyPicker.SelectedIndex switch
 			{
 				0 => ScheduleFrequency.Hourly,
@@ -103,9 +108,19 @@ public partial class ScheduledScansPage : ContentPage
 
 		var modeBadge = new Label
 		{
-			Text = s.Mode == ScanMode.Full ? "🔎 Complet" : "⚡ Rapide",
+			Text = s.Mode switch
+			{
+				ScanMode.Full => "🔎 Complet",
+				ScanMode.Stealth => "🥷 Furtif",
+				_ => "⚡ Rapide"
+			},
 			FontSize = 11,
-			TextColor = Color.FromArgb(s.Mode == ScanMode.Full ? "#F59E0B" : "#06B6D4"),
+			TextColor = Color.FromArgb(s.Mode switch
+			{
+				ScanMode.Full => "#F59E0B",
+				ScanMode.Stealth => "#8B5CF6",
+				_ => "#06B6D4"
+			}),
 			FontAttributes = FontAttributes.Bold
 		};
 
@@ -224,7 +239,12 @@ public partial class ScheduledScansPage : ContentPage
 		CancelButton.IsVisible = true;
 
 		TargetsEditor.Text = s.Targets;
-		ModePicker.SelectedIndex = s.Mode == ScanMode.Full ? 1 : 0;
+		ModePicker.SelectedIndex = s.Mode switch
+		{
+			ScanMode.Full => 1,
+			ScanMode.Stealth => 2,
+			_ => 0
+		};
 		FrequencyPicker.SelectedIndex = s.Frequency switch
 		{
 			ScheduleFrequency.Hourly => 0,
