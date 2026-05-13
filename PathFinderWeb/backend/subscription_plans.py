@@ -59,13 +59,14 @@ class Plan:
 PLANS: Dict[str, Plan] = {
     TIER_FREE: Plan(
         tier=TIER_FREE,
-        name="Free",
+        name="Découverte",
         price_cents=0,
         currency="EUR",
         tagline="Pour découvrir PathFinder et scanner son réseau domestique.",
         features=[
             "5 scans par mois",
-            "Mode Rapide uniquement",
+            "Scan réseau de base",
+            "14 ports les plus utilisés",
             "1 planification active",
             "Historique 30 jours",
             "Support communautaire",
@@ -81,17 +82,18 @@ PLANS: Dict[str, Plan] = {
     ),
     TIER_PRO: Plan(
         tier=TIER_PRO,
-        name="Pro",
+        name="Audit Pro",
         price_cents=1900,
         currency="EUR",
         tagline="Pour les freelances et petites équipes qui auditent régulièrement.",
         features=[
             "Scans illimités",
-            "Modes Rapide + Complet",
+            "Analyse de ports illimitée",
+            "Détection services ouverts",
             "10 planifications actives",
             "Historique illimité",
             "Export PDF / CSV",
-            "Support par email sous 48h",
+            "Support email 48h",
         ],
         limits={
             "scans_per_month": None,
@@ -104,16 +106,16 @@ PLANS: Dict[str, Plan] = {
     ),
     TIER_ENTERPRISE: Plan(
         tier=TIER_ENTERPRISE,
-        name="Enterprise",
+        name="Entreprise",
         price_cents=0,          # sur devis : pas de prix public
         currency="EUR",
         tagline="Équipes sécurité : licences multi-postes gérées par un chef d'entreprise, tarif sur devis.",
         features=[
-            "Tout le plan Pro",
-            "Mode Furtif (stealth)",
+            "Tout le plan Audit Pro",
+            "Mode furtif / stealth",
             "Planifications illimitées",
-            "Pentest tools activés",
-            "Licences multi-postes gérées par votre chef d'entreprise",
+            "Outils pentest activés",
+            "Licences multi-postes",
             "Support prioritaire dédié",
         ],
         limits={

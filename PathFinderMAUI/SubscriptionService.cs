@@ -37,9 +37,9 @@ public static class SubscriptionService
 
     public static string TierLabel => CurrentTier switch
     {
-        TierEnterprise => "Enterprise",
-        TierPro        => "Pro",
-        _              => "Free",
+        TierEnterprise => "Entreprise",
+        TierPro        => "Audit Pro",
+        _              => "Découverte",
     };
 
     public static string TierEmoji => CurrentTier switch

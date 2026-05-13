@@ -1025,6 +1025,21 @@ def pretty_save(results: List[Dict], out_json: str=None, out_csv: str=None):
     print(json.dumps(results, ensure_ascii=False))
     print("<<<JSON_RESULTS_END>>>")
 
+def _parse_ports(spec: str):
+    """Parse a port specification like '22,80,443' or '1-65535' or '22,80,100-200'."""
+    ports = []
+    for part in spec.split(","):
+        part = part.strip()
+        if not part:
+            continue
+        if "-" in part:
+            lo, hi = part.split("-", 1)
+            lo, hi = int(lo), int(hi)
+            ports.extend(range(lo, hi + 1))
+        else:
+            ports.append(int(part))
+    return sorted(set(ports))
+
 def main():
     parser = argparse.ArgumentParser(description="Network scanner + basic vulnerability indicators")
     parser.add_argument("target", help="CIDR or range")
@@ -1042,7 +1057,7 @@ def main():
     workers = args.workers if args.workers > 0 else profile["recommended_workers"]
 
     ips = parse_ip_range(args.target)
-    ports = [int(p) for p in args.ports.split(",") if p.strip()]
+    ports = _parse_ports(args.ports)
     print(f"Scan {len(ips)} IPs sur ports {ports} "
           f"avec {workers} workers (mode={args.mode}) "
           f"— ceci peut prendre du temps.")

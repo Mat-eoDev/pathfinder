@@ -4,6 +4,7 @@ const API_URL = 'http://localhost:5001/api';
 let currentUser = null;
 let authToken = null;
 let isAdmin = false;
+let isCompanyAdmin = false;
 let selectedUserId = null;
 
 // ========== GESTION AUTOMATIQUE DES TOKENS ==========
@@ -230,19 +231,27 @@ function showDashboard() {
     
     // Afficher le badge admin si applicable
     isAdmin = currentUser.role === 'admin';
+    isCompanyAdmin = currentUser.role === 'company_admin';
     if (isAdmin) {
         const badge = document.getElementById('user-role-badge');
         badge.textContent = '👑 ADMIN';
         badge.style.display = 'inline-block';
-        
+
         // Afficher le panneau admin
         document.getElementById('admin-panel').style.display = 'block';
-        
+
         // Charger la liste des utilisateurs
         loadUsersList();
-        
+
         // Event listener pour le sélecteur
         document.getElementById('user-select').addEventListener('change', handleUserChange);
+    } else if (isCompanyAdmin) {
+        const badge = document.getElementById('user-role-badge');
+        badge.textContent = '🏢 Chef d\'entreprise';
+        badge.style.display = 'inline-block';
+
+        // Afficher le panneau company-admin (sélecteur de membres)
+        setupCompanyAdminPanel();
     }
     
     // Charger les données
@@ -368,6 +377,48 @@ async function loadUsersList() {
     }
 }
 
+// ========== COMPANY ADMIN PANEL ==========
+
+function setupCompanyAdminPanel() {
+    const panel = document.getElementById('company-admin-panel');
+    if (!panel) return;
+    panel.style.display = 'block';
+    loadCompanyMembers();
+    const select = document.getElementById('company-member-select');
+    if (select) {
+        select.removeEventListener('change', handleCompanyMemberChange);
+        select.addEventListener('change', handleCompanyMemberChange);
+    }
+}
+
+async function loadCompanyMembers() {
+    try {
+        const response = await fetch(`${API_URL}/company/members/list`, {
+            headers: { 'Authorization': `Bearer ${authToken}` }
+        });
+        if (!response.ok) return;
+        const data = await response.json();
+        const select = document.getElementById('company-member-select');
+        if (!select) return;
+        // Garder la première option "Toute l'entreprise"
+        select.innerHTML = '<option value="">👥 Toute l\'entreprise</option>';
+        (data.members || []).forEach(m => {
+            const option = document.createElement('option');
+            option.value = m.id;
+            option.textContent = `${m.username} (${m.email})`;
+            select.appendChild(option);
+        });
+    } catch (error) {
+        console.error('Erreur chargement membres:', error);
+    }
+}
+
+function handleCompanyMemberChange() {
+    const val = document.getElementById('company-member-select').value;
+    selectedUserId = val ? parseInt(val) : null;
+    loadDashboardData();
+}
+
 // ========== AUTHENTIFICATION ==========
 
 async function handleLogin(e) {
@@ -443,6 +494,9 @@ function handleLogout() {
     localStorage.removeItem('userData');
     authToken = null;
     currentUser = null;
+    isAdmin = false;
+    isCompanyAdmin = false;
+    selectedUserId = null;
     notify.info('À bientôt ! 👋');
     showLandingPage();
 }
@@ -477,7 +531,7 @@ async function loadDashboardData() {
 async function loadStats() {
     try {
         let url = `${API_URL}/dashboard/stats`;
-        if (isAdmin && selectedUserId) {
+        if ((isAdmin || isCompanyAdmin) && selectedUserId) {
             url += `?user_id=${selectedUserId}`;
         }
         
@@ -509,19 +563,19 @@ async function loadStats() {
 async function loadScans() {
     try {
         let url = `${API_URL}/scans`;
-        if (isAdmin && selectedUserId) {
+        if ((isAdmin || isCompanyAdmin) && selectedUserId) {
             url += `?user_id=${selectedUserId}`;
         }
-        
+
         const response = await fetch(url, {
             headers: { 'Authorization': `Bearer ${authToken}` }
         });
-        
+
         if (!response.ok) throw new Error('Erreur de chargement');
-        
+
         const data = await response.json();
-        
-        displayScansList(data.scans, data.is_admin);
+
+        displayScansList(data.scans, data.is_admin || data.is_company_admin);
         
     } catch (error) {
         console.error('Erreur scans:', error);
@@ -1560,8 +1614,11 @@ async function loadProfileData() {
         document.getElementById('profile-avatar-text').textContent = data.username.charAt(0).toUpperCase();
         
         const roleBadge = document.getElementById('profile-role-badge');
-        roleBadge.textContent = data.role === 'admin' ? '👑 Admin' : 'Utilisateur';
+        roleBadge.textContent = data.role === 'admin' ? '👑 Admin'
+            : data.role === 'company_admin' ? '🏢 Chef d\'entreprise'
+            : 'Utilisateur';
         if (data.role === 'admin') roleBadge.classList.add('admin');
+        if (data.role === 'company_admin') roleBadge.classList.add('admin');
         
         // Stats
         document.getElementById('user-total-scans').textContent = data.total_scans || 0;

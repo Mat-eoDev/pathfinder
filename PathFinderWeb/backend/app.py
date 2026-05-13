@@ -1015,6 +1015,27 @@ def _get_owned_company(user_id):
         conn.close()
 
 
+def _get_company_member_ids(user_id):
+    """Si user_id est company_admin, renvoie la liste des IDs de tous les
+    membres de son entreprise (lui inclus). Sinon renvoie None."""
+    conn = get_db_connection()
+    if not conn:
+        return None
+    cursor = conn.cursor(dictionary=True)
+    try:
+        cursor.execute(
+            "SELECT id FROM companies WHERE owner_user_id = %s", (user_id,))
+        company = cursor.fetchone()
+        if not company:
+            return None
+        cursor.execute(
+            "SELECT id FROM users WHERE company_id = %s", (company['id'],))
+        return [r['id'] for r in cursor.fetchall()]
+    finally:
+        cursor.close()
+        conn.close()
+
+
 @app.route('/api/company/me', methods=['GET'])
 @token_required
 def company_me(current_user_id):
@@ -1166,6 +1187,27 @@ def company_remove_member(current_user_id, user_id):
         conn.close()
 
 
+@app.route('/api/company/members/list', methods=['GET'])
+@token_required
+def company_members_list(current_user_id):
+    """Liste simplifiée des membres (id + username) pour le sélecteur dashboard."""
+    company = _get_owned_company(current_user_id)
+    if not company:
+        return jsonify({'message': 'Non autorisé'}), 403
+    conn = get_db_connection()
+    if not conn:
+        return jsonify({'message': 'DB indisponible'}), 500
+    cursor = conn.cursor(dictionary=True)
+    try:
+        cursor.execute(
+            "SELECT id, username, email FROM users WHERE company_id = %s ORDER BY username",
+            (company['id'],))
+        return jsonify({'members': cursor.fetchall()}), 200
+    finally:
+        cursor.close()
+        conn.close()
+
+
 # ========== ROUTES DES SCANS ==========
 
 @app.route('/api/scans', methods=['POST'])
@@ -1267,55 +1309,88 @@ def get_scans(current_user_id):
     token = request.headers.get('Authorization', '').replace('Bearer ', '')
     try:
         token_data = jwt.decode(token, app.config['SECRET_KEY'], algorithms=["HS256"])
-        is_admin = token_data.get('role') == 'admin'
-        selected_user = request.args.get('user_id', type=int)  # Pour l'admin
+        role = token_data.get('role', 'user')
+        is_admin = role == 'admin'
+        is_company_admin = role == 'company_admin'
+        selected_user = request.args.get('user_id', type=int)
     except:
         is_admin = False
+        is_company_admin = False
         selected_user = None
-    
+
     conn = get_db_connection()
     if not conn:
         return jsonify({'message': 'Erreur de connexion'}), 500
-    
+
     cursor = conn.cursor(dictionary=True)
-    
+
     try:
-        # Si admin et user_id spécifié, récupérer les scans de cet utilisateur
+        # --- Super admin : voit tout ---
         if is_admin and selected_user:
             target_user_id = selected_user
         elif is_admin:
-            # Admin sans user_id spécifié = tous les scans
             cursor.execute(
-                """SELECT s.id, s.network_range, s.total_hosts, s.alive_hosts, 
+                """SELECT s.id, s.network_range, s.total_hosts, s.alive_hosts,
                 s.critical_hosts, s.high_risk_hosts, s.scan_date, s.user_id,
                 u.username as user_name, u.email as user_email
-                FROM scans s 
+                FROM scans s
                 JOIN users u ON s.user_id = u.id
                 ORDER BY s.scan_date DESC LIMIT 100"""
             )
             scans = cursor.fetchall()
-            
             for scan in scans:
                 scan['scan_date'] = scan['scan_date'].isoformat() if scan['scan_date'] else None
-            
             return jsonify({'scans': scans, 'is_admin': True}), 200
+
+        # --- Company admin : voit les scans de son entreprise ---
+        elif is_company_admin:
+            member_ids = _get_company_member_ids(current_user_id)
+            if member_ids:
+                if selected_user and selected_user in member_ids:
+                    # Filtre sur un membre précis
+                    cursor.execute(
+                        """SELECT s.id, s.network_range, s.total_hosts, s.alive_hosts,
+                        s.critical_hosts, s.high_risk_hosts, s.scan_date, s.user_id,
+                        u.username as user_name, u.email as user_email
+                        FROM scans s JOIN users u ON s.user_id = u.id
+                        WHERE s.user_id = %s
+                        ORDER BY s.scan_date DESC LIMIT 50""",
+                        (selected_user,)
+                    )
+                else:
+                    # Tous les membres
+                    placeholders = ','.join(['%s'] * len(member_ids))
+                    cursor.execute(
+                        f"""SELECT s.id, s.network_range, s.total_hosts, s.alive_hosts,
+                        s.critical_hosts, s.high_risk_hosts, s.scan_date, s.user_id,
+                        u.username as user_name, u.email as user_email
+                        FROM scans s JOIN users u ON s.user_id = u.id
+                        WHERE s.user_id IN ({placeholders})
+                        ORDER BY s.scan_date DESC LIMIT 100""",
+                        tuple(member_ids)
+                    )
+                scans = cursor.fetchall()
+                for scan in scans:
+                    scan['scan_date'] = scan['scan_date'].isoformat() if scan['scan_date'] else None
+                return jsonify({'scans': scans, 'is_company_admin': True}), 200
+            # Pas d'entreprise trouvée, fallback sur ses propres scans
+            target_user_id = current_user_id
         else:
             target_user_id = current_user_id
-        
+
         cursor.execute(
-            """SELECT id, network_range, total_hosts, alive_hosts, 
-            critical_hosts, high_risk_hosts, scan_date 
+            """SELECT id, network_range, total_hosts, alive_hosts,
+            critical_hosts, high_risk_hosts, scan_date
             FROM scans WHERE user_id = %s ORDER BY scan_date DESC LIMIT 50""",
             (target_user_id,)
         )
         scans = cursor.fetchall()
-        
-        # Convertir les dates en string
+
         for scan in scans:
             scan['scan_date'] = scan['scan_date'].isoformat() if scan['scan_date'] else None
-        
+
         return jsonify({'scans': scans, 'is_admin': is_admin}), 200
-        
+
     except Error as e:
         return jsonify({'message': f'Erreur: {str(e)}'}), 500
     finally:
@@ -1376,103 +1451,116 @@ def get_scan_detail(current_user_id, scan_id):
 @token_required
 def get_dashboard_stats(current_user_id):
     """Récupère les statistiques pour le dashboard."""
-    # Récupérer le rôle de l'utilisateur
     token = request.headers.get('Authorization', '').replace('Bearer ', '')
     try:
         token_data = jwt.decode(token, app.config['SECRET_KEY'], algorithms=["HS256"])
-        is_admin = token_data.get('role') == 'admin'
+        role = token_data.get('role', 'user')
+        is_admin = role == 'admin'
+        is_company_admin = role == 'company_admin'
         selected_user = request.args.get('user_id', type=int)
     except:
         is_admin = False
+        is_company_admin = False
         selected_user = None
-    
-    # Déterminer l'utilisateur cible
+
+    # Déterminer le filtre utilisateur
+    user_filter = ""
+    user_params = ()
+    multi_user = False   # True = vue multi-utilisateurs (admin ou company)
+
     if is_admin and selected_user:
-        target_user_id = selected_user
-        user_filter = f"WHERE user_id = {selected_user}"
+        user_filter = "WHERE user_id = %s"
+        user_params = (selected_user,)
     elif is_admin:
-        target_user_id = None
-        user_filter = ""  # Tous les utilisateurs
+        multi_user = True  # Tout voir
+    elif is_company_admin:
+        member_ids = _get_company_member_ids(current_user_id)
+        if member_ids:
+            if selected_user and selected_user in member_ids:
+                user_filter = "WHERE user_id = %s"
+                user_params = (selected_user,)
+            else:
+                placeholders = ','.join(['%s'] * len(member_ids))
+                user_filter = f"WHERE user_id IN ({placeholders})"
+                user_params = tuple(member_ids)
+                multi_user = True
+        else:
+            user_filter = "WHERE user_id = %s"
+            user_params = (current_user_id,)
     else:
-        target_user_id = current_user_id
-        user_filter = f"WHERE user_id = {current_user_id}"
-    
+        user_filter = "WHERE user_id = %s"
+        user_params = (current_user_id,)
+
     conn = get_db_connection()
     if not conn:
         return jsonify({'message': 'Erreur de connexion'}), 500
-    
+
     cursor = conn.cursor(dictionary=True)
-    
+
     try:
         # Stats globales
-        if is_admin and not selected_user:
-            # Admin voit TOUT
+        if multi_user and not user_filter:
             cursor.execute(
-                """SELECT 
-                    COUNT(*) as total_scans,
-                    SUM(alive_hosts) as total_devices,
-                    SUM(critical_hosts) as total_critical,
-                    SUM(high_risk_hosts) as total_high_risk
-                FROM scans"""
-            )
+                """SELECT COUNT(*) as total_scans, SUM(alive_hosts) as total_devices,
+                   SUM(critical_hosts) as total_critical, SUM(high_risk_hosts) as total_high_risk
+                FROM scans""")
         else:
             cursor.execute(
-                f"""SELECT 
-                    COUNT(*) as total_scans,
-                    SUM(alive_hosts) as total_devices,
-                    SUM(critical_hosts) as total_critical,
-                    SUM(high_risk_hosts) as total_high_risk
-                FROM scans {user_filter}"""
-            )
+                f"""SELECT COUNT(*) as total_scans, SUM(alive_hosts) as total_devices,
+                    SUM(critical_hosts) as total_critical, SUM(high_risk_hosts) as total_high_risk
+                FROM scans {user_filter}""", user_params)
         global_stats = cursor.fetchone()
-        
+
         # Derniers scans
-        if is_admin and not selected_user:
+        if multi_user and not user_filter:
             cursor.execute(
                 """SELECT s.scan_date, s.alive_hosts, s.critical_hosts, u.username
-                FROM scans s
-                JOIN users u ON s.user_id = u.id
-                ORDER BY s.scan_date DESC LIMIT 7"""
-            )
-        else:
+                FROM scans s JOIN users u ON s.user_id = u.id
+                ORDER BY s.scan_date DESC LIMIT 7""")
+        elif multi_user:
             cursor.execute(
-                f"""SELECT scan_date, alive_hosts, critical_hosts 
-                FROM scans {user_filter}
-                ORDER BY scan_date DESC LIMIT 7"""
-            )
-        recent_scans = cursor.fetchall()
-        
-        # Distribution des OS
-        if is_admin and not selected_user:
-            cursor.execute(
-                """SELECT os_detected, COUNT(*) as count 
-                FROM scan_hosts sh
-                JOIN scans s ON sh.scan_id = s.id
-                GROUP BY os_detected
-                ORDER BY count DESC LIMIT 10"""
-            )
-        else:
-            cursor.execute(
-                f"""SELECT os_detected, COUNT(*) as count 
-                FROM scan_hosts sh
-                JOIN scans s ON sh.scan_id = s.id
+                f"""SELECT s.scan_date, s.alive_hosts, s.critical_hosts, u.username
+                FROM scans s JOIN users u ON s.user_id = u.id
                 {user_filter.replace('user_id', 's.user_id')}
-                GROUP BY os_detected
-                ORDER BY count DESC LIMIT 10"""
-            )
+                ORDER BY s.scan_date DESC LIMIT 7""", user_params)
+        else:
+            cursor.execute(
+                f"""SELECT scan_date, alive_hosts, critical_hosts
+                FROM scans {user_filter}
+                ORDER BY scan_date DESC LIMIT 7""", user_params)
+        recent_scans = cursor.fetchall()
+
+        # Distribution des OS
+        if multi_user and not user_filter:
+            cursor.execute(
+                """SELECT os_detected, COUNT(*) as count
+                FROM scan_hosts sh JOIN scans s ON sh.scan_id = s.id
+                GROUP BY os_detected ORDER BY count DESC LIMIT 10""")
+        elif multi_user:
+            cursor.execute(
+                f"""SELECT os_detected, COUNT(*) as count
+                FROM scan_hosts sh JOIN scans s ON sh.scan_id = s.id
+                {user_filter.replace('user_id', 's.user_id')}
+                GROUP BY os_detected ORDER BY count DESC LIMIT 10""", user_params)
+        else:
+            cursor.execute(
+                f"""SELECT os_detected, COUNT(*) as count
+                FROM scan_hosts sh JOIN scans s ON sh.scan_id = s.id
+                {user_filter.replace('user_id', 's.user_id')}
+                GROUP BY os_detected ORDER BY count DESC LIMIT 10""", user_params)
         os_distribution = cursor.fetchall()
-        
-        # Convertir dates
+
         for scan in recent_scans:
             scan['scan_date'] = scan['scan_date'].isoformat() if scan['scan_date'] else None
-        
+
         return jsonify({
             'global_stats': global_stats,
             'recent_scans': recent_scans,
             'os_distribution': os_distribution,
-            'is_admin': is_admin
+            'is_admin': is_admin,
+            'is_company_admin': is_company_admin
         }), 200
-        
+
     except Error as e:
         return jsonify({'message': f'Erreur: {str(e)}'}), 500
     finally:

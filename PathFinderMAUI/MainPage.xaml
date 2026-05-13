@@ -144,14 +144,14 @@
                             <RadioButton Grid.Row="0" Grid.Column="0"
                                          x:Name="ModeFastRadio"
                                          GroupName="ScanMode"
-                                         Content="⚡ Rapide (~13 ports)"
+                                         Content="⚡ Rapide (14 ports)"
                                          IsChecked="True"
                                          TextColor="#E2E8F0"
                                          FontSize="14"/>
                             <RadioButton Grid.Row="0" Grid.Column="1"
                                          x:Name="ModeFullRadio"
                                          GroupName="ScanMode"
-                                         Content="🔎 Complet (40+ ports)"
+                                         Content="🔎 Complet (illimité)"
                                          TextColor="#E2E8F0"
                                          FontSize="14"/>
                             <RadioButton Grid.Row="0" Grid.Column="2"
@@ -162,7 +162,7 @@
                                          FontSize="14"/>
                             <Label Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="3"
                                    x:Name="ModeHintLabel"
-                                   Text="Rapide : premier passage. Complet : 40+ ports + deep banner + CVE live NVD. Furtif : délais aléatoires, moins détectable par un IDS."
+                                   Text="Rapide : 14 ports essentiels. Complet : tous les 65 535 ports + deep banner + CVE live NVD. Furtif : délais aléatoires, moins détectable par un IDS."
                                    FontSize="11" TextColor="#64748B" Margin="0,6,0,0"/>
                         </Grid>
                     </Border>

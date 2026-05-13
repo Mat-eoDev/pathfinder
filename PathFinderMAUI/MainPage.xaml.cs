@@ -18,8 +18,8 @@ public partial class MainPage : ContentPage
 	private bool _scanInProgress = false;
 
 	// Liste de ports par mode
-	private static readonly string FAST_PORTS = "21,22,23,25,53,80,110,139,143,443,445,3389,8080";
-	private static readonly string FULL_PORTS = "20,21,22,23,25,53,80,110,111,135,139,143,443,445,465,587,993,995,1433,1521,3306,3389,5000,5001,5432,5900,5985,5986,6379,8000,8080,8443,8888,9090,9200,27017,27018,50000";
+	private static readonly string FAST_PORTS = "21,22,23,25,53,80,110,139,143,443,445,3389,8080,8443";
+	private static readonly string FULL_PORTS = "1-65535";
 	// Stealth : même surface que Full mais avec timeouts longs et délais aléatoires côté Python.
 	private static readonly string STEALTH_PORTS = FULL_PORTS;
 	
@@ -254,7 +254,7 @@ public partial class MainPage : ContentPage
 			await DisplayAlert(
 				$"Mode {ModeLabel(mode)} indisponible",
 				$"Votre plan {SubscriptionService.TierLabel} ne permet pas le mode {ModeLabel(mode)}.\n\n" +
-				"Passez au plan Pro (Rapide + Complet) ou Enterprise (+ Furtif) depuis le dashboard web.",
+				"Passez au plan Audit Pro (Rapide + Complet) ou Entreprise (+ Furtif) depuis le dashboard web.",
 				"OK");
 			return;
 		}
@@ -290,17 +290,17 @@ public partial class MainPage : ContentPage
 			if (!canStealth && ModeStealthRadio.IsChecked) ModeFastRadio.IsChecked = true;
 
 			if (!canStealth)
-				ModeFullRadio.Content = canFull ? "🔎 Complet (40+ ports)" : "🔒 Complet (Pro+)";
+				ModeFullRadio.Content = canFull ? "🔎 Complet (illimité)" : "🔒 Complet (Audit Pro+)";
 			if (!canStealth)
-				ModeStealthRadio.Content = "🔒 Furtif (Enterprise)";
+				ModeStealthRadio.Content = "🔒 Furtif (Entreprise)";
 
 			if (!canFull)
 			{
-				ModeHintLabel.Text = "Plan Free : seul le mode Rapide est disponible. Passez Pro pour le mode Complet ou Enterprise pour Furtif.";
+				ModeHintLabel.Text = "Plan Découverte : seul le mode Rapide (14 ports) est disponible. Passez Audit Pro pour le mode Complet (illimité) ou Entreprise pour Furtif.";
 			}
 			else if (!canStealth)
 			{
-				ModeHintLabel.Text = "Plan Pro : modes Rapide + Complet. Passez Enterprise pour débloquer le mode Furtif.";
+				ModeHintLabel.Text = "Plan Audit Pro : modes Rapide (14 ports) + Complet (illimité). Passez Entreprise pour débloquer le mode Furtif.";
 			}
 		}
 		catch (Exception ex)
